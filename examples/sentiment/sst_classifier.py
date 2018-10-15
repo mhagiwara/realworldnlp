@@ -20,18 +20,32 @@ from realworldnlp.predictors import SentenceClassifierPredictor
 EMBEDDING_DIM = 128
 HIDDEN_DIM = 128
 
-
+# Model in AllenNLP represents a model that is trained.
 class LstmClassifier(Model):
     def __init__(self,
                  word_embeddings: TextFieldEmbedder,
                  encoder: Seq2VecEncoder,
                  vocab: Vocabulary) -> None:
         super().__init__(vocab)
+        # We need the embeddings to convert word IDs to their vector representations
         self.word_embeddings = word_embeddings
+
+        # Seq2VecEncoder is a neural network abstraction that takes a sequence of something
+        # (usually a sequence of embedded word vectors), processes it, and returns a single
+        # vector. Oftentimes this is an RNN-based architecture (e.g., LSTM or GRU), but
+        # AllenNLP also supports CNNs and other simple architectures (for example,
+        # just averaging over the input vectors).
         self.encoder = encoder
+
+        # After converting a sequence of vectors to a single vector, we feed it into
+        # a fully-connected linear layer to reduce the dimension to the total number of labels.
         self.hidden2tag = torch.nn.Linear(in_features=encoder.get_output_dim(),
                                           out_features=vocab.get_vocab_size('labels'))
         self.accuracy = CategoricalAccuracy()
+
+        # We use the cross entropy loss because this is a classification task.
+        # Note that PyTorch's CrossEntropyLoss combines softmax and log likelihood loss,
+        # which makes it unnecessary to add a separate softmax layer.
         self.loss_function = torch.nn.CrossEntropyLoss()
 
     def forward(self,
@@ -58,10 +72,17 @@ def main():
     train_dataset = reader.read('data/stanfordSentimentTreebank/trees/train.txt')
     dev_dataset = reader.read('data/stanfordSentimentTreebank/trees/dev.txt')
 
+    # You can optionally specify the minimum count of tokens/labels.
+    # `min_count={'tokens':3}` here means that any tokens that appear less than three times
+    # will be ignored and not included in the vocabulary.
     vocab = Vocabulary.from_instances(train_dataset + dev_dataset,
                                       min_count={'tokens': 3})
+
     token_embedding = Embedding(num_embeddings=vocab.get_vocab_size('tokens'),
                                 embedding_dim=EMBEDDING_DIM)
+
+    # BasicTextFieldEmbedder takes a dict - we need an embedding just for tokens,
+    # not for labels, which are used as-is as the "answer" of the sentence classification
     word_embeddings = BasicTextFieldEmbedder({"tokens": token_embedding})
 
     lstm = PytorchSeq2VecWrapper(
