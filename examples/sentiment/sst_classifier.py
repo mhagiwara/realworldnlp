@@ -48,13 +48,23 @@ class LstmClassifier(Model):
         # which makes it unnecessary to add a separate softmax layer.
         self.loss_function = torch.nn.CrossEntropyLoss()
 
+    # Instances are fed to forward after batching.
+    # Fields are passed through arguments with the same name.
     def forward(self,
                 tokens: Dict[str, torch.Tensor],
                 label: torch.Tensor = None) -> torch.Tensor:
+        # In deep NLP, when sequences of tensors in different lengths are batched together,
+        # shorter sequences get padded with zeros to make them equal length.
+        # Masking is the process to ignore extra zeros added by padding
         mask = get_text_field_mask(tokens)
+
+        # Forward pass
         embeddings = self.word_embeddings(tokens)
         encoder_out = self.encoder(embeddings, mask)
         logits = self.hidden2tag(encoder_out)
+
+        # In AllenNLP, the output of forward() is a dictionary.
+        # Your output dictionary must contain a "loss" key for your model to be trained.
         output = {"logits": logits}
         if label is not None:
             self.accuracy(logits, label)
@@ -101,12 +111,13 @@ def main():
                       train_dataset=train_dataset,
                       validation_dataset=dev_dataset,
                       patience=10,
-                      num_epochs=10)
+                      num_epochs=20)
 
     trainer.train()
 
+    tokens = ['This', 'is', 'the', 'best', 'movie', 'ever', '!']
     predictor = SentenceClassifierPredictor(model, dataset_reader=reader)
-    logits = predictor.predict(['This', 'is', 'the', 'best', 'movie', 'ever', '!'])['logits']
+    logits = predictor.predict(tokens)['logits']
     label_id = np.argmax(logits)
 
     print(model.vocab.get_token_from_index(label_id, 'labels'))
