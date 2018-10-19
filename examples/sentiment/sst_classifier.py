@@ -21,6 +21,7 @@ EMBEDDING_DIM = 128
 HIDDEN_DIM = 128
 
 # Model in AllenNLP represents a model that is trained.
+@Model.register("lstm_classifier")
 class LstmClassifier(Model):
     def __init__(self,
                  word_embeddings: TextFieldEmbedder,
