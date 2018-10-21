@@ -1,5 +1,10 @@
 // AllenNLP configuration files are written in Jsonnet, a superset of JSON
 // with added functionalities such as variables and comments (like this one :).
+
+// For example, you can write variable declrations as follows:
+local embedding_dim = 128;
+local hidden_dim = 128;
+
 {
   "dataset_reader": {
     "type": "sst_tokens"
@@ -27,7 +32,7 @@
     "word_embeddings": {
       "tokens": {
         "type": "embedding",
-        "embedding_dim": 128
+        "embedding_dim": embedding_dim
       }
     },
 
@@ -37,8 +42,8 @@
     // so you can just use them by specifying intuitive names
     "encoder": {
       "type": "lstm",
-      "input_size": 128,
-      "hidden_size": 128
+      "input_size": embedding_dim,
+      "hidden_size": hidden_dim
     }
   },
   "iterator": {
@@ -52,3 +57,10 @@
     "patience": 10
   }
 }
+
+// You can make predictions for instance(s) using the `allennlp`
+// allennlp predict \
+//  tmp/model.tar.gz \
+//  =(echo '{"tokens": ["This", "is", "the", "best", "movie", "ever", "!"]}')  \
+// --include-package examples.sentiment.sst_classifier \
+// --predictor sentence_classifier_predictor

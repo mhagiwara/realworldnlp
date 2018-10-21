@@ -7,6 +7,9 @@ from allennlp.predictors import Predictor
 from overrides import overrides
 
 
+# You need to name your predictor and register so that `allennlp` command can recognize it
+# Note that you need to use "@Predictor.register", not "@Model.register"!
+@Predictor.register("sentence_classifier_predictor")
 class SentenceClassifierPredictor(Predictor):
     def __init__(self, model: Model, dataset_reader: DatasetReader) -> None:
         super().__init__(model, dataset_reader)
