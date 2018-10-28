@@ -39,9 +39,11 @@ def main():
     # options_file = "https://s3-us-west-2.amazonaws.com/allennlp/models/elmo/2x2048_256_2048cnn_1xhighway/elmo_2x2048_256_2048cnn_1xhighway_options.json"
     # weight_file = "https://s3-us-west-2.amazonaws.com/allennlp/models/elmo/2x2048_256_2048cnn_1xhighway/elmo_2x2048_256_2048cnn_1xhighway_weights.hdf5"
 
-    # Small
-    options_file = "https://s3-us-west-2.amazonaws.com/allennlp/models/elmo/2x1024_128_2048cnn_1xhighway/elmo_2x1024_128_2048cnn_1xhighway_options.json"
-    weight_file = "https://s3-us-west-2.amazonaws.com/allennlp/models/elmo/2x1024_128_2048cnn_1xhighway/elmo_2x1024_128_2048cnn_1xhighway_weights.hdf5"
+    # Use the 'Small' pre-trained model
+    options_file = ('https://s3-us-west-2.amazonaws.com/allennlp/models/elmo'
+                    '/2x1024_128_2048cnn_1xhighway/elmo_2x1024_128_2048cnn_1xhighway_options.json')
+    weight_file = ('https://s3-us-west-2.amazonaws.com/allennlp/models/elmo'
+                   '/2x1024_128_2048cnn_1xhighway/elmo_2x1024_128_2048cnn_1xhighway_weights.hdf5')
 
     elmo_embedder = ElmoTokenEmbedder(options_file, weight_file)
 
@@ -51,7 +53,7 @@ def main():
     # Pass in the ElmoTokenEmbedder instance instead
     word_embeddings = BasicTextFieldEmbedder({"tokens": elmo_embedder})
 
-    # THe dimension of the ELMo embedding will be 2 x [size of LSTM hidden states]
+    # The dimension of the ELMo embedding will be 2 x [size of LSTM hidden states]
     elmo_embedding_dim = 256
     lstm = PytorchSeq2VecWrapper(
         torch.nn.LSTM(elmo_embedding_dim, HIDDEN_DIM, batch_first=True))
