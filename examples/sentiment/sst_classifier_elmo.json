@@ -1,3 +1,6 @@
+local embedding_dim = 256;
+local hidden_dim = 128;
+
 {
   "dataset_reader": {
     "type": "sst_tokens",
@@ -25,8 +28,8 @@
 
     "encoder": {
       "type": "lstm",
-      "input_size": 256,
-      "hidden_size": 128
+      "input_size": embedding_dim,
+      "hidden_size": hidden_dim
     }
   },
   "iterator": {
