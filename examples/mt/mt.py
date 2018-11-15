@@ -12,10 +12,11 @@ from allennlp.modules.text_field_embedders import BasicTextFieldEmbedder
 from allennlp.modules.token_embedders import Embedding
 from allennlp.training.trainer import Trainer
 from allennlp.predictors import SimpleSeq2SeqPredictor
+from allennlp.modules.attention.linear_attention import LinearAttention
 
 EN_EMBEDDING_DIM = 128
 ZH_EMBEDDING_DIM = 128
-HIDDEN_DIM = 128
+HIDDEN_DIM = 256
 
 
 def main():
@@ -36,10 +37,14 @@ def main():
         torch.nn.LSTM(EN_EMBEDDING_DIM, HIDDEN_DIM, batch_first=True))
 
     source_embedder = BasicTextFieldEmbedder({"tokens": en_embedding})
+
+    attention = LinearAttention(HIDDEN_DIM, HIDDEN_DIM)
+
     max_decoding_steps = 20   # TODO: make this variable
     model = SimpleSeq2Seq(vocab, source_embedder, encoder, max_decoding_steps,
                           target_embedding_dim=ZH_EMBEDDING_DIM,
-                          target_namespace='target_tokens')
+                          target_namespace='target_tokens',
+                          attention=attention)
     optimizer = optim.Adam(model.parameters())
     iterator = BucketIterator(batch_size=32, sorting_keys=[("source_tokens", "num_tokens")])
 
@@ -52,11 +57,12 @@ def main():
                       validation_dataset=validation_dataset,
                       num_epochs=1)
 
-    trainer.train()
+    for _ in range(10):
+        trainer.train()
 
-    predictor = SimpleSeq2SeqPredictor(model, reader)
-    print(predictor.predict('She loves Chinese food.')['predicted_tokens'])
-    print(predictor.predict('My kids are at school.')['predicted_tokens'])
+        predictor = SimpleSeq2SeqPredictor(model, reader)
+        print(predictor.predict('She loves Chinese food.')['predicted_tokens'])
+        print(predictor.predict('My kids are at school.')['predicted_tokens'])
 
 
 if __name__ == '__main__':
