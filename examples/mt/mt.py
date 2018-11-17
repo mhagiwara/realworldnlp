@@ -1,5 +1,6 @@
 import torch
 import torch.optim as optim
+import itertools
 from allennlp.data.dataset_readers.seq2seq import Seq2SeqDatasetReader
 from allennlp.data.iterators import BucketIterator
 from allennlp.data.token_indexers import SingleIdTokenIndexer
@@ -13,11 +14,17 @@ from allennlp.modules.token_embedders import Embedding
 from allennlp.training.trainer import Trainer
 from allennlp.predictors import SimpleSeq2SeqPredictor
 from allennlp.modules.attention.linear_attention import LinearAttention
+from allennlp.modules.attention.bilinear_attention import BilinearAttention
+from allennlp.modules.attention.dot_product_attention import DotProductAttention
+from realworldnlp.bleu import BLEU
+from allennlp.nn import util
+from allennlp.nn.activations import Activation
 
-EN_EMBEDDING_DIM = 128
-ZH_EMBEDDING_DIM = 128
+
+EN_EMBEDDING_DIM = 256
+ZH_EMBEDDING_DIM = 256
 HIDDEN_DIM = 256
-
+CUDA_DEVICE = 0
 
 def main():
     reader = Seq2SeqDatasetReader(
@@ -38,13 +45,16 @@ def main():
 
     source_embedder = BasicTextFieldEmbedder({"tokens": en_embedding})
 
-    attention = LinearAttention(HIDDEN_DIM, HIDDEN_DIM)
+    # attention = LinearAttention(HIDDEN_DIM, HIDDEN_DIM, activation=Activation.by_name('tanh')())
+    # attention = BilinearAttention(HIDDEN_DIM, HIDDEN_DIM)
+    attention = DotProductAttention()
 
     max_decoding_steps = 20   # TODO: make this variable
     model = SimpleSeq2Seq(vocab, source_embedder, encoder, max_decoding_steps,
                           target_embedding_dim=ZH_EMBEDDING_DIM,
                           target_namespace='target_tokens',
-                          attention=attention)
+                          attention=attention,
+                          beam_size=8)
     optimizer = optim.Adam(model.parameters())
     iterator = BucketIterator(batch_size=32, sorting_keys=[("source_tokens", "num_tokens")])
 
@@ -54,15 +64,26 @@ def main():
                       optimizer=optimizer,
                       iterator=iterator,
                       train_dataset=train_dataset,
-                      validation_dataset=validation_dataset,
-                      num_epochs=1)
+                      num_epochs=1,
+                      cuda_device=CUDA_DEVICE)
 
-    for _ in range(10):
+    for _ in range(50):
         trainer.train()
 
         predictor = SimpleSeq2SeqPredictor(model, reader)
-        print(predictor.predict('She loves Chinese food.')['predicted_tokens'])
-        print(predictor.predict('My kids are at school.')['predicted_tokens'])
+        bleu = BLEU()
+        for batch in itertools.islice(iterator(validation_dataset), 10):
+            batch = util.move_to_device(batch, CUDA_DEVICE)
+            target_tokens = batch['target_tokens']['tokens']
+            output_dict = model(**batch)
+            predictions = output_dict['predictions']
+            bleu(predictions, target_tokens)
+        print(bleu.get_metric())
+
+        for instance in itertools.islice(validation_dataset, 10):
+            print('SOURCE:', instance.fields['source_tokens'].tokens)
+            print('GOLD:', instance.fields['target_tokens'].tokens)
+            print('PRED:', predictor.predict_instance(instance)['predicted_tokens'])
 
 
 if __name__ == '__main__':
