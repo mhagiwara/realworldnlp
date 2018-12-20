@@ -8,9 +8,10 @@ from allennlp.data.token_indexers import SingleIdTokenIndexer
 from allennlp.data.tokenizers.character_tokenizer import CharacterTokenizer
 from allennlp.data.tokenizers.word_tokenizer import WordTokenizer
 from allennlp.data.vocabulary import Vocabulary
+from allennlp.nn.activations import Activation
 from allennlp.models.encoder_decoders.simple_seq2seq import SimpleSeq2Seq
-from allennlp.modules.attention.dot_product_attention import DotProductAttention
-from allennlp.modules.seq2seq_encoders import PytorchSeq2SeqWrapper
+from allennlp.modules.attention import LinearAttention, BilinearAttention, DotProductAttention
+from allennlp.modules.seq2seq_encoders import PytorchSeq2SeqWrapper, StackedSelfAttentionEncoder
 from allennlp.modules.text_field_embedders import BasicTextFieldEmbedder
 from allennlp.modules.token_embedders import Embedding
 from allennlp.predictors import SimpleSeq2SeqPredictor
@@ -35,8 +36,9 @@ def main():
 
     en_embedding = Embedding(num_embeddings=vocab.get_vocab_size('tokens'),
                              embedding_dim=EN_EMBEDDING_DIM)
-    encoder = PytorchSeq2SeqWrapper(
-        torch.nn.LSTM(EN_EMBEDDING_DIM, HIDDEN_DIM, batch_first=True))
+    # encoder = PytorchSeq2SeqWrapper(
+    #     torch.nn.LSTM(EN_EMBEDDING_DIM, HIDDEN_DIM, batch_first=True))
+    encoder = StackedSelfAttentionEncoder(input_dim=EN_EMBEDDING_DIM, hidden_dim=HIDDEN_DIM, projection_dim=128, feedforward_hidden_dim=128, num_layers=1, num_attention_heads=8)
 
     source_embedder = BasicTextFieldEmbedder({"tokens": en_embedding})
 
@@ -64,7 +66,8 @@ def main():
                       num_epochs=1,
                       cuda_device=CUDA_DEVICE)
 
-    for _ in range(50):
+    for i in range(50):
+        print('Epoch: {}'.format(i))
         trainer.train()
 
         predictor = SimpleSeq2SeqPredictor(model, reader)
