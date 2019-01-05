@@ -22,3 +22,19 @@ class SentenceClassifierPredictor(Predictor):
         tokens = json_dict["tokens"]
         return self._dataset_reader.text_to_instance(tokens)
 
+
+@Predictor.register("universal_pos_predictor")
+class UniversalPOSPredictor(Predictor):
+    def __init__(self, model: Model, dataset_reader: DatasetReader) -> None:
+        super().__init__(model, dataset_reader)
+
+    def predict(self, words: List[str]) -> JsonDict:
+        return self.predict_json({"words" : words})
+
+    @overrides
+    def _json_to_instance(self, json_dict: JsonDict) -> Instance:
+        words = json_dict["words"]
+        # This is a hack - the second argument to text_to_instance is a list of POS tags
+        # that has the same length as words. We don't need it for prediction sd
+        # just pass words.
+        return self._dataset_reader.text_to_instance(words, words)
