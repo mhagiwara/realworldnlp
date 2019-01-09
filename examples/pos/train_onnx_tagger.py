@@ -22,15 +22,21 @@ EMBEDDING_SIZE = 128
 HIDDEN_SIZE = 128
 
 class LstmTaggerInnerModel(Model):
-    def __init__(self, encoder: torch.nn.Module, encoder_output_size: int, label_size: int):
+    def __init__(self,
+                 embedding: Embedding,
+                 encoder: torch.nn.Module,
+                 encoder_output_size: int,
+                 label_size: int):
         super().__init__(None)
+        self.embedding = embedding
         self.encoder = encoder
         self.hidden2tag = torch.nn.Linear(in_features=encoder_output_size,
                                           out_features=label_size)
 
     def forward(self, x, mask):
+        embedded_x = self.embedding(x)
         lengths = get_lengths_from_binary_sequence_mask(mask)
-        packed_x = pack_padded_sequence(x, lengths, batch_first=True)
+        packed_x = pack_padded_sequence(embedded_x, lengths, batch_first=True)
         encoder_out, _ = self.encoder(packed_x)
         unpacked, _ = pad_packed_sequence(encoder_out, batch_first=True)
         tag_logits = self.hidden2tag(unpacked)
@@ -41,10 +47,8 @@ class LstmTaggerInnerModel(Model):
 class LstmTagger(Model):
     def __init__(self,
                  inner_model: LstmTaggerInnerModel,
-                 embedder: TextFieldEmbedder,
                  vocab: Vocabulary) -> None:
         super().__init__(vocab)
-        self.embedder = embedder
         self.inner_model = inner_model
         self.accuracy = CategoricalAccuracy()
 
@@ -52,14 +56,14 @@ class LstmTagger(Model):
                 words: Dict[str, torch.Tensor],
                 pos_tags: torch.Tensor = None,
                 **args) -> Dict[str, torch.Tensor]:
+        tokens = words['tokens']
         mask = get_text_field_mask(words)
-        embeddings = self.embedder(words)
 
         mask = torch.flip(mask, [0])
-        embeddings = torch.flip(embeddings, [0])
+        tokens = torch.flip(tokens, [0])
         pos_tags = torch.flip(pos_tags, [0])
 
-        tag_logits = self.inner_model(embeddings, mask)
+        tag_logits = self.inner_model(tokens, mask)
 
         output = {"tag_logits": tag_logits}
         if pos_tags is not None:
@@ -81,12 +85,15 @@ def main():
 
     token_embedding = Embedding(num_embeddings=vocab.get_vocab_size('tokens'),
                                 embedding_dim=EMBEDDING_SIZE)
-    word_embeddings = BasicTextFieldEmbedder({"tokens": token_embedding})
+    # word_embeddings = BasicTextFieldEmbedder({"tokens": token_embedding})
 
     lstm = torch.nn.LSTM(EMBEDDING_SIZE, HIDDEN_SIZE, batch_first=True)
 
-    inner_model = LstmTaggerInnerModel(lstm, HIDDEN_SIZE, vocab.get_vocab_size('pos'))
-    model = LstmTagger(inner_model, word_embeddings, vocab)
+    inner_model = LstmTaggerInnerModel(encoder=lstm,
+                                       embedding=token_embedding,
+                                       encoder_output_size=HIDDEN_SIZE,
+                                       label_size=vocab.get_vocab_size('pos'))
+    model = LstmTagger(inner_model, vocab)
 
     optimizer = optim.Adam(model.parameters())
 
@@ -111,9 +118,15 @@ def main():
 
     print([vocab.get_token_from_index(tag_id, 'pos') for tag_id in tag_ids])
 
-    dummy_input = torch.zeros(1, 10, EMBEDDING_SIZE, dtype=torch.float32)
+    out_dir = 'examples/pos'
+    dummy_input = torch.zeros(1, 10, dtype=torch.long)
     dummy_mask = torch.ones(1, 10, dtype=torch.long)
-    torch.onnx.export(inner_model, (dummy_input, dummy_mask), 'postagger.onnx', verbose=True)
+    torch.onnx.export(model=inner_model,
+                      args=(dummy_input, dummy_mask),
+                      f=f'{out_dir}/model.onnx',
+                      verbose=True)
+
+    vocab.save_to_files(f'{out_dir}/vocab')
 
 
 if __name__ == '__main__':
