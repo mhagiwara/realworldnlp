@@ -21,13 +21,13 @@ from realworldnlp.predictors import UniversalPOSPredictor
 EMBEDDING_SIZE = 128
 HIDDEN_SIZE = 128
 
-class LstmTaggerInnerModel(Model):
+class LstmTaggerInnerModel(torch.nn.Module):
     def __init__(self,
                  embedding: Embedding,
                  encoder: torch.nn.Module,
                  encoder_output_size: int,
                  label_size: int):
-        super().__init__(None)
+        super().__init__()
         self.embedding = embedding
         self.encoder = encoder
         self.hidden2tag = torch.nn.Linear(in_features=encoder_output_size,
@@ -109,11 +109,11 @@ def main():
                       train_dataset=train_dataset,
                       validation_dataset=dev_dataset,
                       patience=10,
-                      num_epochs=1)
+                      num_epochs=10)
     trainer.train()
 
     predictor = UniversalPOSPredictor(model, reader)
-    logits = predictor.predict(['The', 'dog', 'ate', 'the', 'apple', '.'])['tag_logits']
+    logits = predictor.predict(['Time', 'flies', 'like', 'an', 'arrow', '.'])['tag_logits']
     tag_ids = np.argmax(logits, axis=-1)
 
     print([vocab.get_token_from_index(tag_id, 'pos') for tag_id in tag_ids])
