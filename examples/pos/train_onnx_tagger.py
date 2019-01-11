@@ -1,25 +1,23 @@
-from typing import Dict
 import numpy as np
-
 import torch
 import torch.optim as optim
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-
 from allennlp.data.dataset_readers import UniversalDependenciesDatasetReader
 from allennlp.data.iterators import BucketIterator
 from allennlp.data.vocabulary import Vocabulary
 from allennlp.models import Model
-from allennlp.modules.seq2seq_encoders import Seq2SeqEncoder, PytorchSeq2SeqWrapper
-from allennlp.modules.text_field_embedders import TextFieldEmbedder, BasicTextFieldEmbedder
 from allennlp.modules.token_embedders import Embedding
-from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_logits, get_lengths_from_binary_sequence_mask
+from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_logits, \
+    get_lengths_from_binary_sequence_mask
 from allennlp.training.metrics import CategoricalAccuracy
 from allennlp.training.trainer import Trainer
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+from typing import Dict
 
 from realworldnlp.predictors import UniversalPOSPredictor
 
 EMBEDDING_SIZE = 128
 HIDDEN_SIZE = 128
+MAX_LEN = 20
 
 class LstmTaggerInnerModel(torch.nn.Module):
     def __init__(self,
@@ -32,6 +30,11 @@ class LstmTaggerInnerModel(torch.nn.Module):
         self.encoder = encoder
         self.hidden2tag = torch.nn.Linear(in_features=encoder_output_size,
                                           out_features=label_size)
+        # HACK: Because of the issue of onnx_tf not supporting matrices with rank > 2 for Matmul,
+        # you need to squeeze (delete the batch dimension) and then unsqueeze (introduce it again)
+        # when exporting the model.
+        # cf. https://github.com/onnx/onnx/issues/1383
+        self.exporting = False
 
     def forward(self, x, mask):
         embedded_x = self.embedding(x)
@@ -39,8 +42,12 @@ class LstmTaggerInnerModel(torch.nn.Module):
         packed_x = pack_padded_sequence(embedded_x, lengths, batch_first=True)
         encoder_out, _ = self.encoder(packed_x)
         unpacked, _ = pad_packed_sequence(encoder_out, batch_first=True)
-        tag_logits = self.hidden2tag(unpacked)
 
+        if self.exporting:
+            unpacked = unpacked.squeeze()
+        tag_logits = self.hidden2tag(unpacked)
+        if self.exporting:
+            tag_logits = tag_logits.unsqueeze(0)
         return tag_logits
 
 
@@ -85,7 +92,6 @@ def main():
 
     token_embedding = Embedding(num_embeddings=vocab.get_vocab_size('tokens'),
                                 embedding_dim=EMBEDDING_SIZE)
-    # word_embeddings = BasicTextFieldEmbedder({"tokens": token_embedding})
 
     lstm = torch.nn.LSTM(EMBEDDING_SIZE, HIDDEN_SIZE, batch_first=True)
 
@@ -119,8 +125,9 @@ def main():
     print([vocab.get_token_from_index(tag_id, 'pos') for tag_id in tag_ids])
 
     out_dir = 'examples/pos'
-    dummy_input = torch.zeros(1, 10, dtype=torch.long)
-    dummy_mask = torch.ones(1, 10, dtype=torch.long)
+    dummy_input = torch.zeros(1, MAX_LEN, dtype=torch.long)
+    dummy_mask = torch.ones(1, MAX_LEN, dtype=torch.long)
+    inner_model.exporting = True
     torch.onnx.export(model=inner_model,
                       args=(dummy_input, dummy_mask),
                       f=f'{out_dir}/model.onnx',

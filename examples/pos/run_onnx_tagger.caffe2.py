@@ -1,9 +1,11 @@
-import onnx
-import caffe2.python.onnx.backend as onnx_caffe2_backend
-import torch
 import codecs
-import numpy as np
 
+import caffe2.python.onnx.backend as onnx_caffe2_backend
+import numpy as np
+import onnx
+import torch
+
+MAX_LEN = 20
 
 def read_vocab(filename):
     token2id = {}
@@ -21,17 +23,20 @@ def main():
     token2id, id2token = read_vocab('examples/pos/vocab/tokens.txt')
     pos2id, id2pos = read_vocab('examples/pos/vocab/pos.txt')
 
-    tokens = ['Time', 'flies', 'like', 'an', 'arrow', '.']
-    token_ids = [token2id.get(token, token2id['@@UNKNOWN@@']) for token in tokens]
     model = onnx.load('examples/pos/model.onnx')
-
     prepared_backend = onnx_caffe2_backend.prepare(model)
-    tokens = torch.tensor([token_ids], dtype=torch.long)
-    mask = torch.tensor([[1, 1, 1, 1, 1, 1, 0, 0, 0, 0]], dtype=torch.long)
-    inputs = {'inputs': tokens.data.numpy(), 'mask.1': mask.data.numpy()}
+
+    tokens = ['Time', 'flies', 'like', 'an', 'arrow', '.']
+    token_ids = torch.zeros(1, MAX_LEN, dtype=torch.long)
+    mask = torch.zeros(1, MAX_LEN, dtype=torch.long)
+    for i, token in enumerate(tokens):
+        token_ids[0, i] = token2id.get(token, token2id['@@UNKNOWN@@'])
+        mask[0, i] = 1
+    inputs = {'inputs': token_ids.data.numpy(), 'mask.1': mask.data.numpy()}
 
     logits = prepared_backend.run(inputs)[0]
     tag_ids = np.argmax(logits, axis=-1)[0]
+    tag_ids = tag_ids[:len(tokens)]
     print([id2pos[tag_id] for tag_id in tag_ids])
 
 if __name__ == '__main__':
