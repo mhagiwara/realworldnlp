@@ -66,6 +66,8 @@ class LstmTagger(Model):
         tokens = words['tokens']
         mask = get_text_field_mask(words)
 
+        # By default, instances from BucketIterator are sorted in an ascending order of
+        # sequences lengths, but pack_padded_sequence expects a descending order
         mask = torch.flip(mask, [0])
         tokens = torch.flip(tokens, [0])
         pos_tags = torch.flip(pos_tags, [0])
@@ -118,12 +120,14 @@ def main():
                       num_epochs=10)
     trainer.train()
 
+    # Run predictor for a sample sentence
     predictor = UniversalPOSPredictor(model, reader)
     logits = predictor.predict(['Time', 'flies', 'like', 'an', 'arrow', '.'])['tag_logits']
     tag_ids = np.argmax(logits, axis=-1)
 
     print([vocab.get_token_from_index(tag_id, 'pos') for tag_id in tag_ids])
 
+    # Export the inner_model as the ONNX format
     out_dir = 'examples/pos'
     dummy_input = torch.zeros(1, MAX_LEN, dtype=torch.long)
     dummy_mask = torch.ones(1, MAX_LEN, dtype=torch.long)
