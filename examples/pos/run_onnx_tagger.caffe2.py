@@ -3,7 +3,6 @@ import codecs
 import caffe2.python.onnx.backend as onnx_caffe2_backend
 import numpy as np
 import onnx
-import torch
 
 MAX_LEN = 20
 
@@ -27,12 +26,12 @@ def main():
     prepared_backend = onnx_caffe2_backend.prepare(model)
 
     tokens = ['Time', 'flies', 'like', 'an', 'arrow', '.']
-    token_ids = torch.zeros(1, MAX_LEN, dtype=torch.long)
-    mask = torch.zeros(1, MAX_LEN, dtype=torch.long)
+    token_ids = np.zeros((1, MAX_LEN), dtype=np.long)
+    mask = np.zeros((1, MAX_LEN), dtype=np.long)
     for i, token in enumerate(tokens):
         token_ids[0, i] = token2id.get(token, token2id['@@UNKNOWN@@'])
         mask[0, i] = 1
-    inputs = {'inputs': token_ids.data.numpy(), 'mask.1': mask.data.numpy()}
+    inputs = {'inputs': token_ids, 'mask.1': mask}
 
     logits = prepared_backend.run(inputs)[0]
     tag_ids = np.argmax(logits, axis=-1)[0]
