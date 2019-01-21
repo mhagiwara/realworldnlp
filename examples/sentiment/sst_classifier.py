@@ -12,7 +12,7 @@ from allennlp.modules.seq2vec_encoders import Seq2VecEncoder, PytorchSeq2VecWrap
 from allennlp.modules.text_field_embedders import TextFieldEmbedder, BasicTextFieldEmbedder
 from allennlp.modules.token_embedders import Embedding
 from allennlp.nn.util import get_text_field_mask
-from allennlp.training.metrics import CategoricalAccuracy
+from allennlp.training.metrics import CategoricalAccuracy, F1Measure
 from allennlp.training.trainer import Trainer
 
 from realworldnlp.predictors import SentenceClassifierPredictor
@@ -32,18 +32,13 @@ class LstmClassifier(Model):
         # We need the embeddings to convert word IDs to their vector representations
         self.word_embeddings = word_embeddings
 
-        # Seq2VecEncoder is a neural network abstraction that takes a sequence of something
-        # (usually a sequence of embedded word vectors), processes it, and returns a single
-        # vector. Oftentimes this is an RNN-based architecture (e.g., LSTM or GRU), but
-        # AllenNLP also supports CNNs and other simple architectures (for example,
-        # just averaging over the input vectors).
         self.encoder = encoder
 
-        # After converting a sequence of vectors to a single vector, we feed it into
-        # a fully-connected linear layer to reduce the dimension to the total number of labels.
         self.linear = linear
 
+        # Monitor the metrics - we use accuracy, as well as prec, rec, f1 for 4 (very positive)
         self.accuracy = CategoricalAccuracy()
+        self.f1_measure = F1Measure(4)
 
         # We use the cross entropy loss because this is a classification task.
         # Note that PyTorch's CrossEntropyLoss combines softmax and log likelihood loss,
@@ -70,12 +65,17 @@ class LstmClassifier(Model):
         output = {"logits": logits}
         if label is not None:
             self.accuracy(logits, label)
+            self.f1_measure(logits, label)
             output["loss"] = self.loss_function(logits, label)
 
         return output
 
     def get_metrics(self, reset: bool = False) -> Dict[str, float]:
-        return {"accuracy": self.accuracy.get_metric(reset)}
+        precision, recall, f1_measure = self.f1_measure.get_metric(reset)
+        return {'accuracy': self.accuracy.get_metric(reset),
+                'precision': precision,
+                'recall': recall,
+                'f1_measure': f1_measure}
 
 
 def main():
@@ -97,9 +97,16 @@ def main():
     # not for labels, which are used as-is as the "answer" of the sentence classification
     word_embeddings = BasicTextFieldEmbedder({"tokens": token_embedding})
 
+    # Seq2VecEncoder is a neural network abstraction that takes a sequence of something
+    # (usually a sequence of embedded word vectors), processes it, and returns a single
+    # vector. Oftentimes this is an RNN-based architecture (e.g., LSTM or GRU), but
+    # AllenNLP also supports CNNs and other simple architectures (for example,
+    # just averaging over the input vectors).
     encoder = PytorchSeq2VecWrapper(
         torch.nn.LSTM(EMBEDDING_DIM, HIDDEN_DIM, batch_first=True))
 
+    # After converting a sequence of vectors to a single vector, we feed it into
+    # a fully-connected linear layer to reduce the dimension to the total number of labels.
     linear = torch.nn.Linear(in_features=encoder.get_output_dim(),
                              out_features=vocab.get_vocab_size('labels'))
 
