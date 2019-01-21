@@ -26,6 +26,7 @@ class LstmClassifier(Model):
     def __init__(self,
                  word_embeddings: TextFieldEmbedder,
                  encoder: Seq2VecEncoder,
+                 linear: torch.nn.Module,
                  vocab: Vocabulary) -> None:
         super().__init__(vocab)
         # We need the embeddings to convert word IDs to their vector representations
@@ -40,8 +41,8 @@ class LstmClassifier(Model):
 
         # After converting a sequence of vectors to a single vector, we feed it into
         # a fully-connected linear layer to reduce the dimension to the total number of labels.
-        self.hidden2tag = torch.nn.Linear(in_features=encoder.get_output_dim(),
-                                          out_features=vocab.get_vocab_size('labels'))
+        self.linear = linear
+
         self.accuracy = CategoricalAccuracy()
 
         # We use the cross entropy loss because this is a classification task.
@@ -62,7 +63,7 @@ class LstmClassifier(Model):
         # Forward pass
         embeddings = self.word_embeddings(tokens)
         encoder_out = self.encoder(embeddings, mask)
-        logits = self.hidden2tag(encoder_out)
+        logits = self.linear(encoder_out)
 
         # In AllenNLP, the output of forward() is a dictionary.
         # Your output dictionary must contain a "loss" key for your model to be trained.
@@ -96,10 +97,13 @@ def main():
     # not for labels, which are used as-is as the "answer" of the sentence classification
     word_embeddings = BasicTextFieldEmbedder({"tokens": token_embedding})
 
-    lstm = PytorchSeq2VecWrapper(
+    encoder = PytorchSeq2VecWrapper(
         torch.nn.LSTM(EMBEDDING_DIM, HIDDEN_DIM, batch_first=True))
 
-    model = LstmClassifier(word_embeddings, lstm, vocab)
+    linear = torch.nn.Linear(in_features=encoder.get_output_dim(),
+                             out_features=vocab.get_vocab_size('labels'))
+
+    model = LstmClassifier(word_embeddings, encoder, linear, vocab)
     optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
 
     iterator = BucketIterator(batch_size=32, sorting_keys=[("tokens", "num_tokens")])
