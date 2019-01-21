@@ -26,7 +26,6 @@ class LstmClassifier(Model):
     def __init__(self,
                  word_embeddings: TextFieldEmbedder,
                  encoder: Seq2VecEncoder,
-                 linear: torch.nn.Module,
                  vocab: Vocabulary) -> None:
         super().__init__(vocab)
         # We need the embeddings to convert word IDs to their vector representations
@@ -34,7 +33,10 @@ class LstmClassifier(Model):
 
         self.encoder = encoder
 
-        self.linear = linear
+        # After converting a sequence of vectors to a single vector, we feed it into
+        # a fully-connected linear layer to reduce the dimension to the total number of labels.
+        self.linear = torch.nn.Linear(in_features=encoder.get_output_dim(),
+                                      out_features=vocab.get_vocab_size('labels'))
 
         # Monitor the metrics - we use accuracy, as well as prec, rec, f1 for 4 (very positive)
         self.accuracy = CategoricalAccuracy()
@@ -105,12 +107,7 @@ def main():
     encoder = PytorchSeq2VecWrapper(
         torch.nn.LSTM(EMBEDDING_DIM, HIDDEN_DIM, batch_first=True))
 
-    # After converting a sequence of vectors to a single vector, we feed it into
-    # a fully-connected linear layer to reduce the dimension to the total number of labels.
-    linear = torch.nn.Linear(in_features=encoder.get_output_dim(),
-                             out_features=vocab.get_vocab_size('labels'))
-
-    model = LstmClassifier(word_embeddings, encoder, linear, vocab)
+    model = LstmClassifier(word_embeddings, encoder, vocab)
     optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
 
     iterator = BucketIterator(batch_size=32, sorting_keys=[("tokens", "num_tokens")])
@@ -127,9 +124,8 @@ def main():
 
     trainer.train()
 
-    tokens = ['This', 'is', 'the', 'best', 'movie', 'ever', '!']
     predictor = SentenceClassifierPredictor(model, dataset_reader=reader)
-    logits = predictor.predict(tokens)['logits']
+    logits = predictor.predict('This is the best movie ever!')['logits']
     label_id = np.argmax(logits)
 
     print(model.vocab.get_token_from_index(label_id, 'labels'))
