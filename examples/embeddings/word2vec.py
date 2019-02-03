@@ -17,8 +17,11 @@ from torch.nn import CosineSimilarity
 from torch.nn import functional
 import numpy as np
 
-EMBEDDING_DIM = 128
-BATCH_SIZE = 128
+from scipy.stats import spearmanr
+
+EMBEDDING_DIM = 256
+BATCH_SIZE = 256
+CUDA_DEVICE = 0
 
 @DatasetReader.register("skip_gram")
 class SkipGramReader(DatasetReader):
@@ -42,27 +45,30 @@ class SkipGramReader(DatasetReader):
                     reject_prob = 0.
                 self.reject_probs[token] = reject_prob
 
+    def _subsample_tokens(self, tokens):
+        new_tokens = []
+        for token in tokens:
+            reject_prob = self.reject_probs.get(token, 0.)
+            if random.random() <= reject_prob:
+                new_tokens.append(None)
+            else:
+                new_tokens.append(token)
+
+        return new_tokens
+
     @overrides
     def _read(self, file_path: str):
         with open(file_path, "r") as text_file:
             for line in text_file:
                 tokens = line.strip().split(' ')
-                tokens = tokens[:1000000]  # TODO: remove
+                tokens = tokens[:5000000]  # TODO: remove
 
                 if self.reject_probs:
-                    new_tokens = []
-                    for token in tokens:
-                        reject_prob = self.reject_probs.get(token, 0.)
-                        if random.random() <= reject_prob:
-                            new_tokens.append('@@REJECT@@')
-                        else:
-                            new_tokens.append(token)
-
-                    tokens = new_tokens
-                    print(tokens[:1000])
+                    tokens = self._subsample_tokens(tokens)
+                    print(tokens[:200])  # for debugging
 
                 for i, token in enumerate(tokens):
-                    if token == '@@REJECT@@':
+                    if token is None:
                         continue
 
                     token_in = LabelField(token, label_namespace='token_in')
@@ -71,7 +77,7 @@ class SkipGramReader(DatasetReader):
                         if j < 0 or i == j or j > len(tokens) - 1:
                             continue
 
-                        if tokens[j] == '@@REJECT@@':
+                        if tokens[j] is None:
                             continue
 
                         token_out = LabelField(tokens[j], label_namespace='token_out')
@@ -79,11 +85,12 @@ class SkipGramReader(DatasetReader):
 
 
 class SkipGramModel(Model):
-    def __init__(self, vocab, embedding_in, embedding_out, neg_samples=10):
+    def __init__(self, vocab, embedding_in, embedding_out, neg_samples=10, cuda_device=-1):
         super().__init__(vocab)
         self.embedding_in = embedding_in
         self.embedding_out = embedding_out
         self.neg_samples = neg_samples
+        self.cuda_device = cuda_device
 
         token_to_probs = {}
         token_counts = vocab._retained_counter['token_in']  # HACK
@@ -111,7 +118,10 @@ class SkipGramModel(Model):
         negative_out = np.random.choice(a=self.vocab.get_vocab_size('token_in'),
                                         size=batch_size * self.neg_samples,
                                         p=self.neg_sample_probs)
-        negative_out = torch.LongTensor(negative_out).view(batch_size, self.neg_samples).to(0)
+        negative_out = torch.LongTensor(negative_out).view(batch_size, self.neg_samples)
+        if self.cuda_device > -1:
+            negative_out = negative_out.to(self.cuda_device)
+
         embedded_negative_out = self.embedding_out(negative_out)
         inner_negative = torch.bmm(embedded_negative_out, embedded_in.unsqueeze(2)).squeeze()
         log_prob += functional.logsigmoid(-1. * inner_negative).sum(dim=1)
@@ -140,6 +150,47 @@ def get_synonyms(token, embedding, vocab: Vocabulary, num_synonyms: int = 10):
     return sims.most_common(num_synonyms)
 
 
+def read_simlex999():
+    simlex999 = []
+    with open('data/SimLex-999/SimLex-999.txt') as f:
+        next(f)
+        for line in f:
+            fields = line.strip().split('\t')
+            word1, word2, _, sim = fields[:4]
+            sim = float(sim)
+            simlex999.append((word1, word2, sim))
+
+    return simlex999
+
+
+def evaluate_embeddings(embedding, vocab: Vocabulary):
+    cosine = CosineSimilarity(dim=0)
+
+    simlex999 = read_simlex999()
+    sims_pred = []
+    oov_count = 0
+    for word1, word2, sim in simlex999:
+        word1_id = vocab.get_token_index(word1, 'token_in')
+        if word1_id == 1:
+            sims_pred.append(0.)
+            oov_count += 1
+            continue
+        word2_id = vocab.get_token_index(word2, 'token_in')
+        if word2_id == 1:
+            sims_pred.append(0.)
+            oov_count += 1
+            continue
+
+        sim_pred = cosine(embedding.weight[word1_id],
+                          embedding.weight[word2_id]).item()
+        sims_pred.append(sim_pred)
+
+    assert len(sims_pred) == len(simlex999)
+    print('# of OOV words: {} / {}'.format(oov_count, len(simlex999)))
+
+    return spearmanr(sims_pred, [sim for _, _, sim in simlex999])
+
+
 def main():
     reader = SkipGramReader()
     text8 = reader.read('data/text8/text8')
@@ -156,8 +207,11 @@ def main():
     iterator = BasicIterator(batch_size=BATCH_SIZE)
     iterator.index_with(vocab)
 
-    model = SkipGramModel(vocab=vocab, embedding_in=embedding_in, embedding_out=embedding_out,
-                          neg_samples=10)
+    model = SkipGramModel(vocab=vocab,
+                          embedding_in=embedding_in,
+                          embedding_out=embedding_out,
+                          neg_samples=10,
+                          cuda_device=CUDA_DEVICE)
 
     optimizer = optim.Adam(model.parameters())
 
@@ -165,8 +219,8 @@ def main():
                       optimizer=optimizer,
                       iterator=iterator,
                       train_dataset=text8,
-                      num_epochs=10,
-                      cuda_device=0)
+                      num_epochs=5,
+                      cuda_device=CUDA_DEVICE)
     trainer.train()
 
     # write_embeddings(embedding_in, 'data/text8/embeddings.txt', vocab)
@@ -175,6 +229,9 @@ def main():
     print(get_synonyms('flower', embedding_in, vocab))
     print(get_synonyms('design', embedding_in, vocab))
     print(get_synonyms('snow', embedding_in, vocab))
+
+    rho = evaluate_embeddings(embedding_in, vocab)
+    print('simlex999 speareman correlation: {}'.format(rho))
 
 
 if __name__ == '__main__':
