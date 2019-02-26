@@ -25,13 +25,18 @@ CUDA_DEVICE = 0
 
 @DatasetReader.register("skip_gram")
 class SkipGramReader(DatasetReader):
-    def __init__(self, window_size=5, lazy=False, vocab: Vocabulary = None):
+    def __init__(self, window_size=5, lazy=False, vocab: Vocabulary=None):
+        """A DatasetReader for reading a plain text corpus and producing instances
+        for the SkipGram model.
+
+        When vocab is not None, this runs sub-sampling of frequent words as described
+        in (Mikolov et al. 2013).
+        """
         super().__init__(lazy=lazy)
         self.window_size = window_size
         self.reject_probs = None
         if vocab:
             self.reject_probs = {}
-            # threshold = 1.e-5
             threshold = 1.e-3
             token_counts = vocab._retained_counter['token_in']  # HACK
             total_counts = sum(token_counts.values())
@@ -46,6 +51,10 @@ class SkipGramReader(DatasetReader):
                 self.reject_probs[token] = reject_prob
 
     def _subsample_tokens(self, tokens):
+        """Given a list of tokens, runs sub-sampling.
+
+        Returns a new list of tokens where rejected tokens are replaced by Nones.
+        """
         new_tokens = []
         for token in tokens:
             reject_prob = self.reject_probs.get(token, 0.)
@@ -92,6 +101,7 @@ class SkipGramModel(Model):
         self.neg_samples = neg_samples
         self.cuda_device = cuda_device
 
+        # Pre-compute probability for negative sampling
         token_to_probs = {}
         token_counts = vocab._retained_counter['token_in']  # HACK
         total_counts = sum(token_counts.values())
@@ -110,11 +120,13 @@ class SkipGramModel(Model):
     def forward(self, token_in, token_out):
         batch_size = token_out.shape[0]
 
+        # Calculate loss for positive examples
         embedded_in = self.embedding_in(token_in)
         embedded_out = self.embedding_out(token_out)
         inner_positive = torch.mul(embedded_in, embedded_out).sum(dim=1)
         log_prob = functional.logsigmoid(inner_positive)
 
+        # Generate negative examples
         negative_out = np.random.choice(a=self.vocab.get_vocab_size('token_in'),
                                         size=batch_size * self.neg_samples,
                                         p=self.neg_sample_probs)
@@ -122,6 +134,7 @@ class SkipGramModel(Model):
         if self.cuda_device > -1:
             negative_out = negative_out.to(self.cuda_device)
 
+        # Subtract loss for negative examples
         embedded_negative_out = self.embedding_out(negative_out)
         inner_negative = torch.bmm(embedded_negative_out, embedded_in.unsqueeze(2)).squeeze()
         log_prob += functional.logsigmoid(-1. * inner_negative).sum(dim=1)
