@@ -151,6 +151,7 @@ def write_embeddings(embedding: Embedding, file_path, vocab: Vocabulary):
 
 
 def get_synonyms(token, embedding, vocab: Vocabulary, num_synonyms: int = 10):
+    """Given a token, return a list of top N most similar words to the token."""
     token_id = vocab.get_token_index(token, 'token_in')
     token_vec = embedding.weight[token_id]
     cosine = CosineSimilarity(dim=0)
