@@ -21,7 +21,7 @@ from scipy.stats import spearmanr
 
 EMBEDDING_DIM = 256
 BATCH_SIZE = 256
-CUDA_DEVICE = -1
+CUDA_DEVICE = 0
 
 @DatasetReader.register("skip_gram")
 class SkipGramReader(DatasetReader):
@@ -70,7 +70,7 @@ class SkipGramReader(DatasetReader):
         with open(file_path, "r") as text_file:
             for line in text_file:
                 tokens = line.strip().split(' ')
-                tokens = tokens[:100000]  # TODO: remove
+                tokens = tokens[:1000000]  # TODO: remove
 
                 if self.reject_probs:
                     tokens = self._subsample_tokens(tokens)
@@ -97,11 +97,12 @@ class SkipGramModel(Model):
     def __init__(self, vocab, embedding_in, cuda_device=-1):
         super().__init__(vocab)
         self.embedding_in = embedding_in
-        self.cuda_device = cuda_device
         self.linear = torch.nn.Linear(
             in_features=EMBEDDING_DIM,
             out_features=vocab.get_vocab_size('token_out'),
             bias=False)
+        if cuda_device > -1:
+            self.linear = self.linear.to(cuda_device)
 
     def forward(self, token_in, token_out):
         batch_size = token_out.shape[0]
@@ -238,6 +239,9 @@ def main():
                              embedding_dim=EMBEDDING_DIM)
     embedding_out = Embedding(num_embeddings=vocab.get_vocab_size('token_out'),
                               embedding_dim=EMBEDDING_DIM)
+    if CUDA_DEVICE > -1:
+        embedding_in = embedding_in.to(CUDA_DEVICE)
+        embedding_out = embedding_out.to(CUDA_DEVICE)
     iterator = BasicIterator(batch_size=BATCH_SIZE)
     iterator.index_with(vocab)
 
