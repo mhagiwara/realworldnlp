@@ -105,13 +105,11 @@ class SkipGramModel(Model):
             self.linear = self.linear.to(cuda_device)
 
     def forward(self, token_in, token_out):
-        batch_size = token_out.shape[0]
-
         embedded_in = self.embedding_in(token_in)
         logits = self.linear(embedded_in)
         loss = functional.cross_entropy(logits, token_out)
 
-        return {'loss': loss / batch_size}
+        return {'loss': loss}
 
 
 class SkipGramNegativeSamplingModel(Model):
@@ -171,7 +169,7 @@ def write_embeddings(embedding: Embedding, file_path, vocab: Vocabulary):
             f.write('\n')
 
 
-def get_synonyms(token, embedding, vocab: Vocabulary, num_synonyms: int = 10):
+def get_synonyms(token: str, embedding: Model, vocab: Vocabulary, num_synonyms: int = 10):
     """Given a token, return a list of top N most similar words to the token."""
     token_id = vocab.get_token_index(token, 'token_in')
     token_vec = embedding.weight[token_id]
