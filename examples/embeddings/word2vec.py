@@ -21,7 +21,7 @@ from scipy.stats import spearmanr
 
 EMBEDDING_DIM = 256
 BATCH_SIZE = 256
-CUDA_DEVICE = 0
+CUDA_DEVICE = -1
 
 @DatasetReader.register("skip_gram")
 class SkipGramReader(DatasetReader):
@@ -70,7 +70,7 @@ class SkipGramReader(DatasetReader):
         with open(file_path, "r") as text_file:
             for line in text_file:
                 tokens = line.strip().split(' ')
-                tokens = tokens[:5000000]  # TODO: remove
+                tokens = tokens[:100000]  # TODO: remove
 
                 if self.reject_probs:
                     tokens = self._subsample_tokens(tokens)
@@ -94,6 +94,26 @@ class SkipGramReader(DatasetReader):
 
 
 class SkipGramModel(Model):
+    def __init__(self, vocab, embedding_in, cuda_device=-1):
+        super().__init__(vocab)
+        self.embedding_in = embedding_in
+        self.cuda_device = cuda_device
+        self.linear = torch.nn.Linear(
+            in_features=EMBEDDING_DIM,
+            out_features=vocab.get_vocab_size('token_out'),
+            bias=False)
+
+    def forward(self, token_in, token_out):
+        batch_size = token_out.shape[0]
+
+        embedded_in = self.embedding_in(token_in)
+        logits = self.linear(embedded_in)
+        loss = functional.cross_entropy(logits, token_out)
+
+        return {'loss': loss / batch_size}
+
+
+class SkipGramNegativeSamplingModel(Model):
     def __init__(self, vocab, embedding_in, embedding_out, neg_samples=10, cuda_device=-1):
         super().__init__(vocab)
         self.embedding_in = embedding_in
@@ -221,10 +241,15 @@ def main():
     iterator = BasicIterator(batch_size=BATCH_SIZE)
     iterator.index_with(vocab)
 
+    # model = SkipGramNegativeSamplingModel(
+    #     vocab=vocab,
+    #     embedding_in=embedding_in,
+    #     embedding_out=embedding_out,
+    #     neg_samples=10,
+    #     cuda_device=CUDA_DEVICE)
+
     model = SkipGramModel(vocab=vocab,
                           embedding_in=embedding_in,
-                          embedding_out=embedding_out,
-                          neg_samples=10,
                           cuda_device=CUDA_DEVICE)
 
     optimizer = optim.Adam(model.parameters())
