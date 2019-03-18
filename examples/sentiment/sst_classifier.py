@@ -26,7 +26,8 @@ class LstmClassifier(Model):
     def __init__(self,
                  word_embeddings: TextFieldEmbedder,
                  encoder: Seq2VecEncoder,
-                 vocab: Vocabulary) -> None:
+                 vocab: Vocabulary,
+                 positive_label: int = 4) -> None:
         super().__init__(vocab)
         # We need the embeddings to convert word IDs to their vector representations
         self.word_embeddings = word_embeddings
@@ -40,7 +41,7 @@ class LstmClassifier(Model):
 
         # Monitor the metrics - we use accuracy, as well as prec, rec, f1 for 4 (very positive)
         self.accuracy = CategoricalAccuracy()
-        self.f1_measure = F1Measure(4)
+        self.f1_measure = F1Measure(positive_label)
 
         # We use the cross entropy loss because this is a classification task.
         # Note that PyTorch's CrossEntropyLoss combines softmax and log likelihood loss,
