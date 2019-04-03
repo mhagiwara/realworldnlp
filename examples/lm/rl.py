@@ -1,4 +1,3 @@
-import random
 import re
 from typing import List
 
@@ -16,8 +15,7 @@ from nltk.translate.chrf_score import sentence_chrf
 
 EMBEDDING_SIZE = 32
 HIDDEN_SIZE = 256
-BATCH_SIZE = 128
-MAX_EXPERIENCE_SIZE = BATCH_SIZE * 30
+BATCH_SIZE = 256
 CUDA_DEVICE = -1
 
 
@@ -55,6 +53,7 @@ class RNNLanguageModel(Model):
 
         start_symbol_idx = self.vocab.get_token_index(START_SYMBOL, 'tokens')
         end_symbol_idx = self.vocab.get_token_index(END_SYMBOL, 'tokens')
+        vocab_size = self.vocab.get_vocab_size('tokens')
 
         log_likelihood = 0.
         words = []
@@ -66,17 +65,18 @@ class RNNLanguageModel(Model):
 
         for i in range(max_len):
             tokens = torch.tensor([[word_idx]])
-            if self.cuda_device > -1:
-                tokens = tokens.to(self.cuda_device)
+
             embeddings = self.embedder({'tokens': tokens})
             output, state = self.rnn._module(embeddings, state)
             output = self.hidden2out(output)
+
             dist = torch.softmax(output[0, 0], dim=0)
 
             word_idx = start_symbol_idx
+
             while word_idx == start_symbol_idx:
-                word_idx = np.random.choice(a=self.vocab.get_vocab_size('tokens'),
-                                                p=dist.detach().numpy())
+                word_idx = np.random.choice(a=vocab_size,
+                                            p=dist.detach().numpy())
 
             log_likelihood += torch.log(dist[word_idx])
 
@@ -86,6 +86,7 @@ class RNNLanguageModel(Model):
             words.append(self.vocab.get_token_from_index(word_idx, 'tokens'))
 
         return words, log_likelihood
+
 
 def read_shakespeare():
     lines = []
@@ -100,13 +101,13 @@ def read_shakespeare():
     return lines
 
 
-def calculate_reward(generated: str, train_set: List[str], num_lines=10):
+def calculate_reward(generated: str, train_set: List[str], num_lines=100):
     line_ids = np.random.choice(len(train_set), size=num_lines)
 
     chrf_total = 0.
     for line_id in line_ids:
         line = train_set[line_id]
-        chrf = sentence_chrf(line, generated, min_len=2, max_len=6,
+        chrf = sentence_chrf(line, generated, min_len=2, max_len=6, beta=1.,
                              ignore_whitespace=False)
 
         chrf_total += chrf
@@ -128,7 +129,7 @@ def main():
 
     optimizer = optim.Adam(model.parameters())
 
-    for epoch in range(200):
+    for epoch in range(500):
         model.zero_grad()
 
         num_instances = 0
