@@ -23,7 +23,8 @@ from allennlp.training.trainer import Trainer
 EMBEDDING_SIZE = 32
 HIDDEN_SIZE = 256
 BATCH_SIZE = 256
-
+D_STEPS = 5
+D_EPOCHS = 3
 
 class Generator(Model):
     def __init__(self,
@@ -47,6 +48,7 @@ class Generator(Model):
         end_symbol_idx = self.vocab.get_token_index(END_SYMBOL, 'tokens')
         padding_symbol_idx = self.vocab.get_token_index(DEFAULT_PADDING_TOKEN, 'tokens')
         vocab_size = self.vocab.get_vocab_size('tokens')
+        uniform = torch.ones(vocab_size) / vocab_size
 
         log_likelihood = 0.
         words = []
@@ -62,12 +64,13 @@ class Generator(Model):
             output = self.hidden2out(output)
 
             dist = torch.softmax(output[0, 0], dim=0)
+            dist = .99 * dist + .01 * uniform
 
             word_idx = start_symbol_idx
 
             while word_idx in {start_symbol_idx, padding_symbol_idx}:
-                word_idx = np.random.choice(a=vocab_size,
-                                            p=dist.detach().numpy())
+                word_idx = torch.multinomial(
+                    dist, num_samples=1, replacement=False).item()
 
             log_likelihood += torch.log(dist[word_idx])
 
@@ -87,8 +90,6 @@ class Discriminator(Model):
         super().__init__(vocab)
         self.embedder = embedder
 
-        # self.encoder = PytorchSeq2VecWrapper(
-        #     torch.nn.LSTM(EMBEDDING_SIZE, HIDDEN_SIZE, batch_first=True))
         self.encoder = CnnEncoder(EMBEDDING_SIZE, num_filters=8)
 
         self.linear = torch.nn.Linear(in_features=self.encoder.get_output_dim(),
@@ -169,7 +170,7 @@ def get_generator_batch(generator: Generator,
     instances = []
 
     num_instances = 0
-    while num_instances < BATCH_SIZE:
+    while num_instances < 2 * BATCH_SIZE:
         words, log_likelihood = generator.generate()
         if not words:
             continue
@@ -196,6 +197,9 @@ def get_reward(instance: Instance,
 
 
 def main():
+    generator_lr = 5.e-2
+    print('generator_lr: {}'.format(generator_lr))
+
     all_chars = {END_SYMBOL, START_SYMBOL}
     all_chars.update("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ .,!?'")
     token_counts = {char: 1 for char in all_chars}
@@ -219,17 +223,18 @@ def main():
 
     for epoch in range(100):
         # train discriminator
-        instances = get_discriminator_batch(generator, train_set, token_indexers)
+        for d_step in range(D_STEPS):
+            instances = get_discriminator_batch(generator, train_set, token_indexers)
 
-        iterator = BasicIterator(batch_size=2 * BATCH_SIZE)
-        iterator.index_with(vocab)
+            iterator = BasicIterator(batch_size=2 * BATCH_SIZE)
+            iterator.index_with(vocab)
 
-        trainer = Trainer(model=discriminator,
-                          optimizer=discriminator_optim,
-                          iterator=iterator,
-                          train_dataset=instances,
-                          num_epochs=1)
-        trainer.train()
+            trainer = Trainer(model=discriminator,
+                              optimizer=discriminator_optim,
+                              iterator=iterator,
+                              train_dataset=instances,
+                              num_epochs=D_EPOCHS)
+            trainer.train()
 
         # train generator
         generator.zero_grad()
