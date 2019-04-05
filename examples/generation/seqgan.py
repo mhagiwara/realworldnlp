@@ -1,3 +1,4 @@
+import argparse
 import re
 from typing import Dict, List, Tuple, Set
 
@@ -20,27 +21,24 @@ from allennlp.modules.token_embedders import Embedding
 from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_logits
 from allennlp.training.trainer import Trainer
 
-EMBEDDING_SIZE = 32
-HIDDEN_SIZE = 256
-BATCH_SIZE = 256
-D_STEPS = 3
-D_EPOCHS = 3
-G_EPOCHS = 10
 
 class Generator(Model):
     def __init__(self,
                  embedder: TextFieldEmbedder,
-                 vocab: Vocabulary,
-                 max_len: int = 60) -> None:
+                 embedding_size: int,
+                 hidden_size: int,
+                 max_len: int,
+                 vocab: Vocabulary) -> None:
         super().__init__(vocab)
 
         self.embedder = embedder
 
         self.rnn = PytorchSeq2SeqWrapper(
-            torch.nn.LSTM(EMBEDDING_SIZE, HIDDEN_SIZE, batch_first=True))
+            torch.nn.LSTM(embedding_size, hidden_size, batch_first=True))
 
         self.hidden2out = torch.nn.Linear(in_features=self.rnn.get_output_dim(),
                                           out_features=vocab.get_vocab_size('tokens'))
+        self.hidden_size = hidden_size
         self.max_len = max_len
 
     def forward(self, input_tokens, output_tokens):
@@ -62,7 +60,8 @@ class Generator(Model):
 
         log_likelihood = 0.
         words = []
-        state = (torch.zeros(1, 1, HIDDEN_SIZE), torch.zeros(1, 1, HIDDEN_SIZE))
+        state = (torch.zeros(1, 1, self.hidden_size),
+                 torch.zeros(1, 1, self.hidden_size))
 
         word_idx = start_symbol_idx
 
@@ -96,11 +95,12 @@ class Generator(Model):
 class Discriminator(Model):
     def __init__(self,
                  embedder: TextFieldEmbedder,
+                 embedding_size: int,
                  vocab: Vocabulary) -> None:
         super().__init__(vocab)
         self.embedder = embedder
 
-        self.encoder = CnnEncoder(EMBEDDING_SIZE, num_filters=8)
+        self.encoder = CnnEncoder(embedding_size, num_filters=8)
 
         self.linear = torch.nn.Linear(in_features=self.encoder.get_output_dim(),
                                       out_features=vocab.get_vocab_size('labels'))
@@ -162,10 +162,11 @@ def text_to_ml_instance(tokens: List[Token],
 
 def get_discriminator_batch(generator: Generator,
                             train_set: List[List[Token]],
-                            token_indexers: Dict[str, TokenIndexer]) -> List[Instance]:
+                            token_indexers: Dict[str, TokenIndexer],
+                            batch_size: int) -> List[Instance]:
     # Generate real batch
     instances = []
-    sent_ids = np.random.choice(len(train_set), size=BATCH_SIZE, replace=False)
+    sent_ids = np.random.choice(len(train_set), size=batch_size, replace=False)
     for sent_id in sent_ids:
         tokens = train_set[sent_id]
         instance = text_to_disc_instance(tokens, 'real', token_indexers)
@@ -173,7 +174,7 @@ def get_discriminator_batch(generator: Generator,
 
     # Generate fake batch
     num_fake_instances = 0
-    while num_fake_instances < BATCH_SIZE:
+    while num_fake_instances < batch_size:
         words, _ = generator.generate()
         if not words:
             continue
@@ -182,20 +183,21 @@ def get_discriminator_batch(generator: Generator,
         instances.append(instance)
         num_fake_instances += 1
 
-    assert len(instances) == 2 * BATCH_SIZE
+    assert len(instances) == 2 * batch_size
     return instances
 
 
 def get_generator_batch(generator: Generator,
-                        token_indexers: Dict[str, TokenIndexer]) -> List[Tuple[Instance, torch.tensor]]:
+                        token_indexers: Dict[str, TokenIndexer],
+                        batch_size: int) -> List[Tuple[Instance, torch.tensor]]:
     instances = []
 
     num_instances = 0
-    while num_instances < 2 * BATCH_SIZE:
+    while num_instances < 2 * batch_size:
         words, log_likelihood = generator.generate()
         if not words:
             continue
-        # HACK: add paddings
+        # HACK: add paddings for the CNN bug
         while len(words) <= 4:
             words.append(Token(text=DEFAULT_PADDING_TOKEN))
 
@@ -218,8 +220,22 @@ def get_reward(instance: Instance,
 
 
 def main():
-    generator_lr = 1.e-3
-    print('generator_lr: {}'.format(generator_lr))
+    parser = argparse.ArgumentParser(description='SeqGAN training script')
+    parser.add_argument('--batch-size', type=int, default=256)
+    parser.add_argument('--g_epochs', type=int, default=10)
+    parser.add_argument('--embedding_size', type=int, default=32)
+    parser.add_argument('--hidden_size', type=int, default=256)
+    parser.add_argument('--d_steps', type=int, default=3)
+    parser.add_argument('--d_epochs', type=int, default=3)
+    parser.add_argument('--g_lr', type=float, default=1.e-3)
+    parser.add_argument('--seed', type=int, default=1)
+    parser.add_argument('--log', type=str, default='log.txt')
+    args = parser.parse_args()
+
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
+    log_file = open(args.log, mode='w')
 
     all_chars = {END_SYMBOL, START_SYMBOL}
     all_chars.update("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ .,!?'-")
@@ -232,34 +248,41 @@ def main():
     train_set = read_shakespeare(all_chars=all_chars)
 
     token_embedding = Embedding(num_embeddings=vocab.get_vocab_size('tokens'),
-                                embedding_dim=EMBEDDING_SIZE)
+                                embedding_dim=args.embedding_size)
     embedder = BasicTextFieldEmbedder({"tokens": token_embedding})
 
-    generator = Generator(embedder, vocab)
-    discriminator = Discriminator(embedder, vocab)
+    generator = Generator(embedder,
+                          embedding_size=args.embedding_size,
+                          hidden_size=args.hidden_size,
+                          max_len=60,
+                          vocab=vocab)
+    discriminator = Discriminator(embedder,
+                                  embedding_size=args.embedding_size,
+                                  vocab=vocab)
 
-    generator_optim = optim.Adam(generator.parameters(), lr=generator_lr)
+    generator_optim = optim.Adam(generator.parameters(), lr=args.g_lr)
     discriminator_optim = optim.Adagrad(discriminator.parameters())
 
     # pre-train generator
     instances = [text_to_ml_instance(tokens, token_indexers)
                  for tokens in train_set]
-    iterator = BasicIterator(batch_size=BATCH_SIZE)
+    iterator = BasicIterator(batch_size=args.batch_size)
     iterator.index_with(vocab)
 
     trainer = Trainer(model=generator,
                       optimizer=generator_optim,
                       iterator=iterator,
                       train_dataset=instances,
-                      num_epochs=G_EPOCHS)
+                      num_epochs=args.g_epochs)
     trainer.train()
 
     for epoch in range(500):
         # train discriminator
         fake_logs = []
         real_logs = []
-        for d_step in range(D_STEPS):
-            instances = get_discriminator_batch(generator, train_set, token_indexers)
+        for d_step in range(args.d_steps):
+            instances = get_discriminator_batch(
+                generator, train_set, token_indexers, args.batch_size)
             if d_step == 0:
                 for inst in instances:
                     text = ''.join(token.text for token in inst.fields['tokens'])
@@ -269,24 +292,28 @@ def main():
                     if label == 'fake' and len(fake_logs) < 10:
                         fake_logs.append('    {:70s} {}'.format(text, label))
 
-            iterator = BasicIterator(batch_size=2 * BATCH_SIZE)
+            iterator = BasicIterator(batch_size=2 * args.batch_size)
             iterator.index_with(vocab)
 
             trainer = Trainer(model=discriminator,
                               optimizer=discriminator_optim,
                               iterator=iterator,
                               train_dataset=instances,
-                              num_epochs=D_EPOCHS)
+                              num_epochs=args.d_epochs)
             trainer.train()
 
-        print('epoch: {}, step-D'.format(epoch))
+        log = 'epoch: {}, step-D'.format(epoch)
+        print(log)
+        log_file.write(log + '\n')
         for log in real_logs + fake_logs:
             print(log)
+            log_file.write(log + '\n')
 
         # train generator
         generator.zero_grad()
 
-        instances = get_generator_batch(generator, token_indexers)
+        instances = get_generator_batch(
+            generator, token_indexers, args.batch_size)
 
         log_likelihoods = []
         rewards = []
@@ -311,9 +338,16 @@ def main():
         avr_loss.backward()
         generator_optim.step()
 
-        print('epoch: {}, loss: {}, avr_reward: {}'.format(epoch, avr_loss, baseline))
+        log = 'epoch: {}, loss: {}, avr_reward: {}'.format(epoch, avr_loss, baseline)
+        print(log)
+        log_file.write(log + '\n')
         for log in logs:
             print(log)
+            log_file.write(log + '\n')
+
+        log_file.flush()
+
+    log_file.close()
 
 if __name__ == '__main__':
     main()
