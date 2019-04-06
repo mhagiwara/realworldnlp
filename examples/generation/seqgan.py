@@ -28,6 +28,7 @@ class Generator(Model):
                  embedding_size: int,
                  hidden_size: int,
                  max_len: int,
+                 annealing: bool,
                  vocab: Vocabulary) -> None:
         super().__init__(vocab)
 
@@ -40,6 +41,8 @@ class Generator(Model):
                                           out_features=vocab.get_vocab_size('tokens'))
         self.hidden_size = hidden_size
         self.max_len = max_len
+        self.annealing = annealing
+
 
     def forward(self, input_tokens, output_tokens):
         mask = get_text_field_mask(input_tokens)
@@ -72,8 +75,11 @@ class Generator(Model):
             output, state = self.rnn._module(embeddings, state)
             output = self.hidden2out(output)
 
-            dist = torch.softmax(output[0, 0], dim=0)
-            # dist = .99 * dist + .01 * uniform
+            log_prob = torch.log_softmax(output[0, 0], dim=0)
+
+            dist = torch.exp(log_prob)
+            if self.annealing:
+                dist = .99 * dist + .01 * uniform
 
             word_idx = start_symbol_idx
 
@@ -81,7 +87,7 @@ class Generator(Model):
                 word_idx = torch.multinomial(
                     dist, num_samples=1, replacement=False).item()
 
-            log_likelihood += torch.log(dist[word_idx])
+            log_likelihood += log_prob[word_idx]
 
             if word_idx == end_symbol_idx:
                 break
@@ -230,6 +236,7 @@ def main():
     parser.add_argument('--g_lr', type=float, default=1.e-3)
     parser.add_argument('--seed', type=int, default=1)
     parser.add_argument('--log', type=str, default='log.txt')
+    parser.add_argument('--annealing', action='store_true')
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -255,6 +262,7 @@ def main():
                           embedding_size=args.embedding_size,
                           hidden_size=args.hidden_size,
                           max_len=60,
+                          annealing=args.annealing,
                           vocab=vocab)
     discriminator = Discriminator(embedder,
                                   embedding_size=args.embedding_size,
