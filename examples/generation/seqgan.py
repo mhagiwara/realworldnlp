@@ -264,6 +264,11 @@ def main():
                           max_len=60,
                           annealing=args.annealing,
                           vocab=vocab)
+
+    token_embedding = Embedding(num_embeddings=vocab.get_vocab_size('tokens'),
+                                embedding_dim=args.embedding_size)
+    embedder = BasicTextFieldEmbedder({"tokens": token_embedding})
+
     discriminator = Discriminator(embedder,
                                   embedding_size=args.embedding_size,
                                   vocab=vocab)
