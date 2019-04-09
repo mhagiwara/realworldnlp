@@ -14,8 +14,8 @@ from allennlp.modules.text_field_embedders import BasicTextFieldEmbedder
 from allennlp.modules.token_embedders import Embedding
 from allennlp.training.trainer import Trainer
 from overrides import overrides
-from examples.sentiment.sst_classifier import LstmClassifier
 
+from examples.sentiment.sst_classifier import LstmClassifier
 
 EMBEDDING_DIM = 16
 HIDDEN_DIM = 16
@@ -74,7 +74,7 @@ def main():
                       iterator=iterator,
                       train_dataset=train_set,
                       validation_dataset=dev_set,
-                      num_epochs=3)
+                      num_epochs=10)
 
     trainer.train()
 
