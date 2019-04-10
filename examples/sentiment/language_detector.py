@@ -1,5 +1,6 @@
 from typing import Dict
 
+import numpy as np
 import torch
 import torch.optim as optim
 from allennlp.data.dataset_readers import DatasetReader
@@ -47,6 +48,19 @@ class TatoebaSentenceReader(DatasetReader):
                 yield self.text_to_instance(tokens, lang_id)
 
 
+def classify(text: str, model: LstmClassifier):
+    tokenizer = CharacterTokenizer()
+    token_indexers = {'tokens': SingleIdTokenIndexer()}
+
+    tokens = tokenizer.tokenize(text)
+    instance = Instance({'tokens': TextField(tokens, token_indexers)})
+    logits = model.forward_on_instances([instance])[0]['logits']
+    label_id = np.argmax(logits)
+    label = model.vocab.get_token_from_index(label_id, 'labels')
+
+    print('text: {}, label: {}'.format(text, label))
+
+
 def main():
     reader = TatoebaSentenceReader()
     train_set = reader.read('data/mt/sentences.top10langs.train.tsv')
@@ -77,6 +91,17 @@ def main():
                       num_epochs=10)
 
     trainer.train()
+
+    classify('Take your raincoat in case it rains.', model)
+    classify('Tu me recuerdas a mi padre.', model)
+    classify('Wie organisierst du das Essen am Mittag?', model)
+    classify("Il est des cas où cette règle ne s'applique pas.", model)
+    classify('Estou fazendo um passeio em um parque.', model)
+    classify('Ve, postmorgaŭ jam estas la limdato.', model)
+    classify('Credevo che sarebbe venuto.', model)
+    classify('Nem tudja, hogy én egy macska vagyok.', model)
+    classify('Nella ur nli qrib acemma deg tenwalt.', model)
+    classify('Kurşun kalemin yok, değil mi?', model)
 
 
 if __name__ == '__main__':
