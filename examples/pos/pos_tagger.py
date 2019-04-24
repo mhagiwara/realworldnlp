@@ -79,7 +79,7 @@ def main():
                       train_dataset=train_dataset,
                       validation_dataset=dev_dataset,
                       patience=10,
-                      num_epochs=5)
+                      num_epochs=10)
     trainer.train()
 
     predictor = UniversalPOSPredictor(model, reader)
