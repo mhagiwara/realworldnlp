@@ -37,6 +37,6 @@ class UniversalPOSPredictor(Predictor):
     def _json_to_instance(self, json_dict: JsonDict) -> Instance:
         words = json_dict["words"]
         # This is a hack - the second argument to text_to_instance is a list of POS tags
-        # that has the same length as words. We don't need it for prediction sd
+        # that has the same length as words. We don't need it for prediction so
         # just pass words.
         return self._dataset_reader.text_to_instance(words, words)

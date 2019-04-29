@@ -1,9 +1,8 @@
 from typing import Dict
-import numpy as np
 
+import numpy as np
 import torch
 import torch.optim as optim
-
 from allennlp.data.dataset_readers import UniversalDependenciesDatasetReader
 from allennlp.data.iterators import BucketIterator
 from allennlp.data.vocabulary import Vocabulary
@@ -28,8 +27,8 @@ class LstmTagger(Model):
         super().__init__(vocab)
         self.embedder = embedder
         self.encoder = encoder
-        self.hidden2tag = torch.nn.Linear(in_features=encoder.get_output_dim(),
-                                          out_features=vocab.get_vocab_size('pos'))
+        self.linear = torch.nn.Linear(in_features=encoder.get_output_dim(),
+                                      out_features=vocab.get_vocab_size('pos'))
         self.accuracy = CategoricalAccuracy()
 
     def forward(self,
@@ -37,9 +36,11 @@ class LstmTagger(Model):
                 pos_tags: torch.Tensor = None,
                 **args) -> Dict[str, torch.Tensor]:
         mask = get_text_field_mask(words)
+
         embeddings = self.embedder(words)
         encoder_out = self.encoder(embeddings, mask)
-        tag_logits = self.hidden2tag(encoder_out)
+        tag_logits = self.linear(encoder_out)
+
         output = {"tag_logits": tag_logits}
         if pos_tags is not None:
             self.accuracy(tag_logits, pos_tags, mask)
@@ -62,10 +63,10 @@ def main():
                                 embedding_dim=EMBEDDING_SIZE)
     word_embeddings = BasicTextFieldEmbedder({"tokens": token_embedding})
 
-    lstm = PytorchSeq2SeqWrapper(
+    encoder = PytorchSeq2SeqWrapper(
         torch.nn.LSTM(EMBEDDING_SIZE, HIDDEN_SIZE, batch_first=True))
 
-    model = LstmTagger(word_embeddings, lstm, vocab)
+    model = LstmTagger(word_embeddings, encoder, vocab)
 
     optimizer = optim.Adam(model.parameters())
 
@@ -83,7 +84,8 @@ def main():
     trainer.train()
 
     predictor = UniversalPOSPredictor(model, reader)
-    logits = predictor.predict(['The', 'dog', 'ate', 'the', 'apple', '.'])['tag_logits']
+    tokens = ['The', 'dog', 'ate', 'the', 'apple', '.']
+    logits = predictor.predict(tokens)['tag_logits']
     tag_ids = np.argmax(logits, axis=-1)
 
     print([vocab.get_token_from_index(tag_id, 'pos') for tag_id in tag_ids])
