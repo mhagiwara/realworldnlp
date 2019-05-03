@@ -20,6 +20,7 @@ from allennlp.modules.text_field_embedders import TextFieldEmbedder, BasicTextFi
 from allennlp.modules.token_embedders import Embedding
 from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_logits
 from allennlp.training.trainer import Trainer
+from nltk.translate.chrf_score import sentence_chrf
 
 
 class Generator(Model):
@@ -28,20 +29,18 @@ class Generator(Model):
                  embedding_size: int,
                  hidden_size: int,
                  max_len: int,
-                 annealing: bool,
                  vocab: Vocabulary) -> None:
         super().__init__(vocab)
 
         self.embedder = embedder
 
         self.rnn = PytorchSeq2SeqWrapper(
-            torch.nn.LSTM(embedding_size, hidden_size, batch_first=True))
+            torch.nn.LSTM(embedding_size, hidden_size, num_layers=1, batch_first=True))
 
         self.hidden2out = torch.nn.Linear(in_features=self.rnn.get_output_dim(),
                                           out_features=vocab.get_vocab_size('tokens'))
         self.hidden_size = hidden_size
         self.max_len = max_len
-        self.annealing = annealing
 
 
     def forward(self, input_tokens, output_tokens):
@@ -59,7 +58,6 @@ class Generator(Model):
         end_symbol_idx = self.vocab.get_token_index(END_SYMBOL, 'tokens')
         padding_symbol_idx = self.vocab.get_token_index(DEFAULT_PADDING_TOKEN, 'tokens')
         vocab_size = self.vocab.get_vocab_size('tokens')
-        uniform = torch.ones(vocab_size) / vocab_size
 
         log_likelihood = 0.
         words = []
@@ -78,8 +76,6 @@ class Generator(Model):
             log_prob = torch.log_softmax(output[0, 0], dim=0)
 
             dist = torch.exp(log_prob)
-            if self.annealing:
-                dist = .99 * dist + .01 * uniform
 
             word_idx = start_symbol_idx
 
@@ -102,11 +98,12 @@ class Discriminator(Model):
     def __init__(self,
                  embedder: TextFieldEmbedder,
                  embedding_size: int,
+                 num_filters: int,
                  vocab: Vocabulary) -> None:
         super().__init__(vocab)
         self.embedder = embedder
 
-        self.encoder = CnnEncoder(embedding_size, num_filters=8)
+        self.encoder = CnnEncoder(embedding_size, num_filters=num_filters)
 
         self.linear = torch.nn.Linear(in_features=self.encoder.get_output_dim(),
                                       out_features=vocab.get_vocab_size('labels'))
@@ -204,7 +201,7 @@ def get_generator_batch(generator: Generator,
         if not words:
             continue
         # HACK: add paddings for the CNN bug
-        while len(words) <= 4:
+        while len(words) <= 5:
             words.append(Token(text=DEFAULT_PADDING_TOKEN))
 
         instance = text_to_disc_instance(words, 'fake', token_indexers)
@@ -225,18 +222,35 @@ def get_reward(instance: Instance,
     return probs[real_label_id]
 
 
+def get_reward_chrf(instance: Instance,
+                    train_sentences: List[str],
+                    num_lines=100):
+    generated = ''.join(token.text for token in instance.fields['tokens'])
+    line_ids = np.random.choice(len(train_sentences), size=num_lines)
+
+    chrf_total = 0.
+    for line_id in line_ids:
+        line = train_sentences[line_id]
+        chrf = sentence_chrf(line, generated, min_len=2, max_len=6, beta=1.,
+                             ignore_whitespace=False)
+
+        chrf_total += chrf
+
+    return chrf_total / num_lines
+
+
 def main():
     parser = argparse.ArgumentParser(description='SeqGAN training script')
     parser.add_argument('--batch-size', type=int, default=256)
     parser.add_argument('--g_epochs', type=int, default=10)
     parser.add_argument('--embedding_size', type=int, default=32)
     parser.add_argument('--hidden_size', type=int, default=256)
+    parser.add_argument('--num_filters', type=int, default=8)
     parser.add_argument('--d_steps', type=int, default=3)
     parser.add_argument('--d_epochs', type=int, default=3)
     parser.add_argument('--g_lr', type=float, default=1.e-3)
     parser.add_argument('--seed', type=int, default=1)
     parser.add_argument('--log', type=str, default='log.txt')
-    parser.add_argument('--annealing', action='store_true')
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -253,7 +267,8 @@ def main():
     token_indexers = {'tokens': SingleIdTokenIndexer()}
 
     train_set = read_shakespeare(all_chars=all_chars)
-
+    train_sentences = [''.join(token.text for token in tokens) for tokens in train_set]
+    
     token_embedding = Embedding(num_embeddings=vocab.get_vocab_size('tokens'),
                                 embedding_dim=args.embedding_size)
     embedder = BasicTextFieldEmbedder({"tokens": token_embedding})
@@ -262,7 +277,6 @@ def main():
                           embedding_size=args.embedding_size,
                           hidden_size=args.hidden_size,
                           max_len=60,
-                          annealing=args.annealing,
                           vocab=vocab)
 
     token_embedding = Embedding(num_embeddings=vocab.get_vocab_size('tokens'),
@@ -271,6 +285,7 @@ def main():
 
     discriminator = Discriminator(embedder,
                                   embedding_size=args.embedding_size,
+                                  num_filters=args.num_filters,
                                   vocab=vocab)
 
     generator_optim = optim.Adam(generator.parameters(), lr=args.g_lr)
@@ -334,11 +349,12 @@ def main():
 
         for instance, log_likelihood in instances:
             reward = get_reward(instance, discriminator, vocab)
+            reward += get_reward_chrf(instance, train_sentences)
 
             rewards.append(reward)
             log_likelihoods.append(log_likelihood)
 
-            if len(logs) < 10:
+            if len(logs) < 20:
                 text = ''.join(token.text for token in instance.fields['tokens'])
                 logs.append('    {:70s} {:4.3f}'.format(text, reward))
 
