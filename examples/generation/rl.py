@@ -16,18 +16,14 @@ from nltk.translate.chrf_score import sentence_chrf
 EMBEDDING_SIZE = 32
 HIDDEN_SIZE = 256
 BATCH_SIZE = 256
-CUDA_DEVICE = -1
 
 
 class RNNLanguageModel(Model):
-    def __init__(self, vocab: Vocabulary, cuda_device=-1) -> None:
+    def __init__(self, vocab: Vocabulary) -> None:
         super().__init__(vocab)
-        self.cuda_device = cuda_device
 
         token_embedding = Embedding(num_embeddings=vocab.get_vocab_size('tokens'),
                                     embedding_dim=EMBEDDING_SIZE)
-        if cuda_device > -1:
-            token_embedding = token_embedding.to(cuda_device)
         self.embedder = BasicTextFieldEmbedder({"tokens": token_embedding})
 
         self.rnn = PytorchSeq2SeqWrapper(
@@ -35,9 +31,6 @@ class RNNLanguageModel(Model):
 
         self.hidden2out = torch.nn.Linear(in_features=self.rnn.get_output_dim(),
                                           out_features=vocab.get_vocab_size('tokens'))
-        if cuda_device > -1:
-            self.hidden2out = self.hidden2out.to(cuda_device)
-            self.rnn = self.rnn.to(cuda_device)
 
 
     def forward(self, input_tokens, output_tokens):
@@ -53,13 +46,11 @@ class RNNLanguageModel(Model):
 
         start_symbol_idx = self.vocab.get_token_index(START_SYMBOL, 'tokens')
         end_symbol_idx = self.vocab.get_token_index(END_SYMBOL, 'tokens')
-        vocab_size = self.vocab.get_vocab_size('tokens')
 
         log_likelihood = 0.
         words = []
-        state = (torch.zeros(1, 1, HIDDEN_SIZE), torch.zeros(1, 1, HIDDEN_SIZE))
-        if self.cuda_device > -1:
-            state = (state[0].to(self.cuda_device), state[1].to(self.cuda_device))
+        state = (torch.zeros(1, 1, HIDDEN_SIZE),
+                 torch.zeros(1, 1, HIDDEN_SIZE))
 
         word_idx = start_symbol_idx
 
@@ -70,15 +61,15 @@ class RNNLanguageModel(Model):
             output, state = self.rnn._module(embeddings, state)
             output = self.hidden2out(output)
 
-            dist = torch.softmax(output[0, 0], dim=0)
+            log_prob = torch.log_softmax(output[0, 0], dim=0)
+            dist = torch.exp(log_prob)
 
             word_idx = start_symbol_idx
-
             while word_idx == start_symbol_idx:
-                word_idx = np.random.choice(a=vocab_size,
-                                            p=dist.detach().numpy())
+                word_idx = torch.multinomial(
+                    dist, num_samples=1, replacement=False).item()
 
-            log_likelihood += torch.log(dist[word_idx])
+            log_likelihood += log_prob[word_idx]
 
             if word_idx == end_symbol_idx:
                 break
@@ -117,15 +108,13 @@ def calculate_reward(generated: str, train_set: List[str], num_lines=100):
 
 def main():
     train_set = read_shakespeare()
-    all_chars = {END_SYMBOL, START_SYMBOL}
-    all_chars.update('abcdefghijklmnopqrstuvwxyz')
-    all_chars.update('ABCDEFGHIJKLMNOPQRSTUVWXYZ')
-    all_chars.update(" .,!?'")
+    all_chars = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ .,!?\'')
+    all_chars.update([END_SYMBOL, START_SYMBOL])
     token_counts = {char: 1 for char in all_chars}
 
     vocab = Vocabulary({'tokens': token_counts}, non_padded_namespaces=('tokens',))
 
-    model = RNNLanguageModel(vocab, cuda_device=CUDA_DEVICE)
+    model = RNNLanguageModel(vocab)
 
     optimizer = optim.Adam(model.parameters())
 
