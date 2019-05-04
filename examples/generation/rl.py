@@ -1,5 +1,5 @@
 import re
-from typing import List
+from typing import List, Tuple
 
 import numpy as np
 import torch
@@ -10,7 +10,6 @@ from allennlp.models import Model
 from allennlp.modules.seq2seq_encoders import PytorchSeq2SeqWrapper
 from allennlp.modules.text_field_embedders import BasicTextFieldEmbedder
 from allennlp.modules.token_embedders import Embedding
-from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_logits
 from nltk.translate.chrf_score import sentence_chrf
 
 EMBEDDING_SIZE = 32
@@ -32,17 +31,7 @@ class RNNLanguageModel(Model):
         self.hidden2out = torch.nn.Linear(in_features=self.rnn.get_output_dim(),
                                           out_features=vocab.get_vocab_size('tokens'))
 
-
-    def forward(self, input_tokens, output_tokens):
-        mask = get_text_field_mask(input_tokens)
-        embeddings = self.embedder(input_tokens)
-        rnn_hidden = self.rnn(embeddings, mask)
-        out_logits = self.hidden2out(rnn_hidden)
-        loss = sequence_cross_entropy_with_logits(out_logits, output_tokens['tokens'], mask)
-
-        return {'loss': loss}
-
-    def generate(self, max_len=30):
+    def generate(self, max_len: int) -> Tuple[List[str], torch.Tensor]:
 
         start_symbol_idx = self.vocab.get_token_index(START_SYMBOL, 'tokens')
         end_symbol_idx = self.vocab.get_token_index(END_SYMBOL, 'tokens')
@@ -92,7 +81,7 @@ def read_shakespeare():
     return lines
 
 
-def calculate_reward(generated: str, train_set: List[str], num_lines=100):
+def calculate_reward(generated: str, train_set: List[str], num_lines=100) -> float:
     line_ids = np.random.choice(len(train_set), size=num_lines)
 
     chrf_total = 0.
@@ -140,14 +129,14 @@ def main():
             num_instances += 1
 
         baseline = sum(rewards) / num_instances
-        avr_loss = sum(-1. * (reward - baseline) * log_likelihood
-                       for reward, log_likelihood in zip(rewards, log_likelihoods))
-        avr_loss /= num_instances
-        print('epoch: {}, loss: {}, avr_reward: {}'.format(epoch, avr_loss, baseline))
+        loss = sum(-1. * (reward - baseline) * log_likelihood
+                   for reward, log_likelihood in zip(rewards, log_likelihoods))
+        loss /= num_instances
+        print('epoch: {}, loss: {}, avr_reward: {}'.format(epoch, loss, baseline))
         for log in logs:
             print(log)
 
-        avr_loss.backward()
+        loss.backward()
         optimizer.step()
 
 if __name__ == '__main__':
