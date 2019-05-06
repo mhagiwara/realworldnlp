@@ -1,104 +1,70 @@
-from typing import Dict
+import re
+from typing import Dict, List, Tuple, Set
 
-import numpy as np
 import torch
 import torch.optim as optim
-from allennlp.common.file_utils import cached_path
-from allennlp.common.tqdm import Tqdm
 from allennlp.common.util import START_SYMBOL, END_SYMBOL
-from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.data.fields import TextField
 from allennlp.data.instance import Instance
-from allennlp.data.iterators import BucketIterator
+from allennlp.data.iterators import BasicIterator
 from allennlp.data.token_indexers import TokenIndexer, SingleIdTokenIndexer
-from allennlp.data.tokenizers import Token, Tokenizer, WordTokenizer
-from allennlp.data.vocabulary import Vocabulary
+from allennlp.data.tokenizers import Token, CharacterTokenizer
+from allennlp.data.vocabulary import Vocabulary, DEFAULT_PADDING_TOKEN
 from allennlp.models import Model
 from allennlp.modules.seq2seq_encoders import PytorchSeq2SeqWrapper
-from allennlp.modules.text_field_embedders import BasicTextFieldEmbedder
+from allennlp.modules.text_field_embedders import TextFieldEmbedder, BasicTextFieldEmbedder
 from allennlp.modules.token_embedders import Embedding
 from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_logits
 from allennlp.training.trainer import Trainer
-from overrides import overrides
 
-EMBEDDING_SIZE = 128
-HIDDEN_SIZE = 128
-CUDA_DEVICE = -1
+EMBEDDING_SIZE = 32
+HIDDEN_SIZE = 256
+BATCH_SIZE = 128
 
-class LanguageModelingReader(DatasetReader):
-    def __init__(self,
-                 tokens_per_instance: int = None,
-                 tokenizer: Tokenizer = None,
-                 token_indexers: Dict[str, TokenIndexer] = None,
-                 lazy: bool = False) -> None:
-        super().__init__(lazy)
-        self._tokenizer = tokenizer or WordTokenizer()
-        self._token_indexers = token_indexers or {"tokens": SingleIdTokenIndexer()}
-        self._tokens_per_instance = tokens_per_instance
+def read_dataset(all_chars: Set[str]=None) -> List[List[Token]]:
+    tokenizer = CharacterTokenizer()
+    sentences = []
+    with open('data/mt/sentences.eng.10k.txt') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            line = re.sub(' +', ' ', line)
+            tokens = tokenizer.tokenize(line)
+            if all_chars:
+                tokens = [token for token in tokens if token.text in all_chars]
+            sentences.append(tokens)
 
-        self._output_indexer: Dict[str, TokenIndexer] = None
-        for name, indexer in self._token_indexers.items():
-            if isinstance(indexer, SingleIdTokenIndexer):
-                self._output_indexer = {name: indexer}
-                break
-        else:
-            self._output_indexer = {"tokens": SingleIdTokenIndexer()}
+    return sentences
 
-    @overrides
-    def _read(self, file_path: str):
-        # if `file_path` is a URL, redirect to the cache
-        file_path = cached_path(file_path)
+def tokens_to_lm_instance(tokens: List[Token],
+                          token_indexers: Dict[str, TokenIndexer]):
+    tokens = list(tokens)   # shallow copy
+    tokens.insert(0, Token(START_SYMBOL))
+    tokens.append(Token(END_SYMBOL))
 
-        with open(file_path, "r") as text_file:
-            instance_strings = text_file.readlines()
-
-        if self._tokens_per_instance is not None:
-            all_text = " ".join([x.replace("\n", " ").strip() for x in instance_strings])
-            tokenized_text = self._tokenizer.tokenize(all_text)
-            num_tokens = self._tokens_per_instance + 1
-            tokenized_strings = []
-            for index in Tqdm.tqdm(range(0, len(tokenized_text) - num_tokens, num_tokens - 1)):
-                tokenized_strings.append(tokenized_text[index:(index + num_tokens)])
-        else:
-            tokenized_strings = [self._tokenizer.tokenize(s) for s in instance_strings]
-
-        for tokenized_string in tokenized_strings:
-            tokenized_string.insert(0, Token(START_SYMBOL))
-            tokenized_string.append(Token(END_SYMBOL))
-            input_field = TextField(tokenized_string[:-1], self._token_indexers)
-            output_field = TextField(tokenized_string[1:], self._output_indexer)
-            yield Instance({'input_tokens': input_field,
-                            'output_tokens': output_field})
-
-    @overrides
-    def text_to_instance(self, sentence: str) -> Instance:  # type: ignore
-        # pylint: disable=arguments-differ
-        tokenized_string = self._tokenizer.tokenize(sentence)
-        input_field = TextField(tokenized_string[:-1], self._token_indexers)
-        output_field = TextField(tokenized_string[1:], self._output_indexer)
-        return Instance({'input_tokens': input_field, 'output_tokens': output_field})
-
+    input_field = TextField(tokens[:-1], token_indexers)
+    output_field = TextField(tokens[1:], token_indexers)
+    return Instance({'input_tokens': input_field,
+                     'output_tokens': output_field})
 
 class RNNLanguageModel(Model):
-    def __init__(self, vocab: Vocabulary, cuda_device=-1) -> None:
+    def __init__(self,
+                 embedder: TextFieldEmbedder,
+                 hidden_size: int,
+                 max_len: int,
+                 vocab: Vocabulary) -> None:
         super().__init__(vocab)
-        self.cuda_device = cuda_device
 
-        token_embedding = Embedding(num_embeddings=vocab.get_vocab_size('tokens'),
-                                    embedding_dim=EMBEDDING_SIZE)
-        if cuda_device > -1:
-            token_embedding = token_embedding.to(cuda_device)
-        self.embedder = BasicTextFieldEmbedder({"tokens": token_embedding})
+        self.embedder = embedder
 
         self.rnn = PytorchSeq2SeqWrapper(
             torch.nn.LSTM(EMBEDDING_SIZE, HIDDEN_SIZE, batch_first=True))
 
         self.hidden2out = torch.nn.Linear(in_features=self.rnn.get_output_dim(),
                                           out_features=vocab.get_vocab_size('tokens'))
-        if cuda_device > -1:
-            self.hidden2out = self.hidden2out.to(cuda_device)
-            self.rnn = self.rnn.to(cuda_device)
-
+        self.hidden_size = hidden_size
+        self.max_len = max_len
 
     def forward(self, input_tokens, output_tokens):
         mask = get_text_field_mask(input_tokens)
@@ -109,65 +75,83 @@ class RNNLanguageModel(Model):
 
         return {'loss': loss}
 
-    def generate(self, max_len=20):
-        words = []
-        state = (torch.zeros(1, 1, HIDDEN_SIZE), torch.zeros(1, 1, HIDDEN_SIZE))
-        if self.cuda_device > -1:
-            state = (state[0].to(self.cuda_device), state[1].to(self.cuda_device))
-        word_idx = self.vocab.get_token_index(START_SYMBOL, 'tokens')
+    def generate(self) -> Tuple[List[Token], torch.tensor]:
 
-        for i in range(max_len):
+        start_symbol_idx = self.vocab.get_token_index(START_SYMBOL, 'tokens')
+        end_symbol_idx = self.vocab.get_token_index(END_SYMBOL, 'tokens')
+        padding_symbol_idx = self.vocab.get_token_index(DEFAULT_PADDING_TOKEN, 'tokens')
+
+        log_likelihood = 0.
+        words = []
+        state = (torch.zeros(1, 1, self.hidden_size),
+                 torch.zeros(1, 1, self.hidden_size))
+
+        word_idx = start_symbol_idx
+
+        for i in range(self.max_len):
             tokens = torch.tensor([[word_idx]])
-            if self.cuda_device > -1:
-                tokens = tokens.to(self.cuda_device)
+
             embeddings = self.embedder({'tokens': tokens})
             output, state = self.rnn._module(embeddings, state)
             output = self.hidden2out(output)
-            dist = torch.softmax(output[0, 0], dim=0)
-            word_idx = np.random.choice(a=self.vocab.get_vocab_size('tokens'),
-                                        p=dist.detach().numpy())
 
-            if word_idx == self.vocab.get_token_index(END_SYMBOL, 'tokens'):
+            log_prob = torch.log_softmax(output[0, 0], dim=0)
+
+            dist = torch.exp(log_prob)
+
+            word_idx = start_symbol_idx
+
+            while word_idx in {start_symbol_idx, padding_symbol_idx}:
+                word_idx = torch.multinomial(
+                    dist, num_samples=1, replacement=False).item()
+
+            log_likelihood += log_prob[word_idx]
+
+            if word_idx == end_symbol_idx:
                 break
-            words.append(self.vocab.get_token_from_index(word_idx, 'tokens'))
 
-        return words
+            token = Token(text=self.vocab.get_token_from_index(word_idx, 'tokens'))
+            words.append(token)
 
+        return words, log_likelihood
 
 def main():
-    reader = LanguageModelingReader()
-    train_dataset = reader.read('data/mt/sentences.eng.10k.txt')
+    all_chars = {END_SYMBOL, START_SYMBOL}
+    all_chars.update("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ .,!?'-")
+    token_counts = {char: 1 for char in all_chars}
+    vocab = Vocabulary({'tokens': token_counts})
 
-    # for inst in train_dataset:
-    #     print(inst)
+    token_indexers = {'tokens': SingleIdTokenIndexer()}
 
-    vocab = Vocabulary.from_instances(
-        train_dataset, min_count={'tokens': 5})
+    train_set = read_dataset(all_chars)
+    instances = [tokens_to_lm_instance(tokens, token_indexers)
+                 for tokens in train_set]
 
-    iterator = BucketIterator(
-        batch_size=32, sorting_keys=[("input_tokens", "num_tokens")])
+    token_embedding = Embedding(num_embeddings=vocab.get_vocab_size('tokens'),
+                                embedding_dim=EMBEDDING_SIZE)
+    embedder = BasicTextFieldEmbedder({"tokens": token_embedding})
 
+    model = RNNLanguageModel(embedder=embedder,
+                             hidden_size=HIDDEN_SIZE,
+                             max_len=80,
+                             vocab=vocab)
+
+    iterator = BasicIterator(batch_size=BATCH_SIZE)
     iterator.index_with(vocab)
 
-    model = RNNLanguageModel(vocab, cuda_device=CUDA_DEVICE)
-
-    optimizer = optim.Adam(model.parameters())
+    optimizer = optim.Adam(model.parameters(), lr=5.e-3)
 
     trainer = Trainer(model=model,
                       optimizer=optimizer,
                       iterator=iterator,
-                      train_dataset=train_dataset,
-                      patience=10,
-                      num_epochs=5,
-                      cuda_device=CUDA_DEVICE)
-    
+                      train_dataset=instances,
+                      num_epochs=10)
     trainer.train()
 
-    print(model.generate())
-    print(model.generate())
-    print(model.generate())
-    print(model.generate())
-    print(model.generate())
+    for _ in range(50):
+        tokens, _ = model.generate()
+        print(''.join(token.text for token in tokens))
+
 
 if __name__ == '__main__':
     main()

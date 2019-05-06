@@ -57,7 +57,6 @@ class Generator(Model):
         start_symbol_idx = self.vocab.get_token_index(START_SYMBOL, 'tokens')
         end_symbol_idx = self.vocab.get_token_index(END_SYMBOL, 'tokens')
         padding_symbol_idx = self.vocab.get_token_index(DEFAULT_PADDING_TOKEN, 'tokens')
-        vocab_size = self.vocab.get_vocab_size('tokens')
 
         log_likelihood = 0.
         words = []
@@ -151,8 +150,8 @@ def text_to_disc_instance(tokens: List[Token],
     return Instance(fields)
 
 
-def text_to_ml_instance(tokens: List[Token],
-                        token_indexers: Dict[str, TokenIndexer]):
+def tokens_to_lm_instance(tokens: List[Token],
+                          token_indexers: Dict[str, TokenIndexer]):
     tokens = list(tokens)   # shallow copy
     tokens.insert(0, Token(START_SYMBOL))
     tokens.append(Token(END_SYMBOL))
@@ -295,7 +294,7 @@ def main():
 
     # pre-train generator
     print('Pre-training generator...')
-    instances = [text_to_ml_instance(tokens, token_indexers)
+    instances = [tokens_to_lm_instance(tokens, token_indexers)
                  for tokens in train_set]
     iterator = BasicIterator(batch_size=args.batch_size)
     iterator.index_with(vocab)
