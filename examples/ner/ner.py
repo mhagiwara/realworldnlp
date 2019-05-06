@@ -133,7 +133,7 @@ def main():
     word_embeddings = BasicTextFieldEmbedder({"tokens": token_embedding})
 
     lstm = PytorchSeq2SeqWrapper(
-        torch.nn.LSTM(EMBEDDING_SIZE, HIDDEN_SIZE, batch_first=True))
+        torch.nn.LSTM(EMBEDDING_SIZE, HIDDEN_SIZE, bidirectional=True, batch_first=True))
 
     model = LstmTagger(word_embeddings, lstm, vocab)
 

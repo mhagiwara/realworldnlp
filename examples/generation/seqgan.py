@@ -169,7 +169,8 @@ def get_discriminator_batch(generator: Generator,
                             batch_size: int) -> List[Instance]:
     # Generate real batch
     instances = []
-    sent_ids = np.random.choice(len(train_set), size=batch_size, replace=False)
+    num_samples = min(len(train_set), batch_size)
+    sent_ids = np.random.choice(len(train_set), size=num_samples, replace=False)
     for sent_id in sent_ids:
         tokens = train_set[sent_id]
         instance = text_to_disc_instance(tokens, 'real', token_indexers)
@@ -177,7 +178,7 @@ def get_discriminator_batch(generator: Generator,
 
     # Generate fake batch
     num_fake_instances = 0
-    while num_fake_instances < batch_size:
+    while num_fake_instances < num_samples:
         words, _ = generator.generate()
         if not words:
             continue
@@ -186,7 +187,6 @@ def get_discriminator_batch(generator: Generator,
         instances.append(instance)
         num_fake_instances += 1
 
-    assert len(instances) == 2 * batch_size
     return instances
 
 
@@ -249,9 +249,11 @@ def main():
     parser.add_argument('--d_steps', type=int, default=3)
     parser.add_argument('--d_epochs', type=int, default=3)
     parser.add_argument('--g_lr', type=float, default=1.e-3)
+    parser.add_argument('--d_lr', type=float, default=1.e-2)
     parser.add_argument('--seed', type=int, default=1)
     parser.add_argument('--log', type=str, default='log.txt')
     args = parser.parse_args()
+    print(args)
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -276,7 +278,7 @@ def main():
     generator = Generator(embedder,
                           embedding_size=args.embedding_size,
                           hidden_size=args.hidden_size,
-                          max_len=60,
+                          max_len=65,
                           vocab=vocab)
 
     token_embedding = Embedding(num_embeddings=vocab.get_vocab_size('tokens'),
@@ -289,9 +291,10 @@ def main():
                                   vocab=vocab)
 
     generator_optim = optim.Adam(generator.parameters(), lr=args.g_lr)
-    discriminator_optim = optim.Adagrad(discriminator.parameters())
+    discriminator_optim = optim.Adagrad(discriminator.parameters(), lr=args.d_lr)
 
     # pre-train generator
+    print('Pre-training generator...')
     instances = [text_to_ml_instance(tokens, token_indexers)
                  for tokens in train_set]
     iterator = BasicIterator(batch_size=args.batch_size)
@@ -304,7 +307,58 @@ def main():
                       num_epochs=args.g_epochs)
     trainer.train()
 
+    # pre-train discriminator
+    print('Pre-training discriminator...')
+    instances = get_discriminator_batch(
+        generator, train_set, token_indexers, 10 * args.batch_size)
+
+    iterator = BasicIterator(batch_size=args.batch_size)
+    iterator.index_with(vocab)
+
+    trainer = Trainer(model=discriminator,
+                      optimizer=discriminator_optim,
+                      iterator=iterator,
+                      train_dataset=instances,
+                      num_epochs=10)
+    trainer.train()
+
     for epoch in range(500):
+        # train generator
+        generator.zero_grad()
+
+        instances = get_generator_batch(
+            generator, token_indexers, args.batch_size)
+
+        log_likelihoods = []
+        rewards = []
+        logs = []
+
+        for instance, log_likelihood in instances:
+            reward = get_reward(instance, discriminator, vocab)
+            reward += get_reward_chrf(instance, train_sentences)
+
+            rewards.append(reward)
+            log_likelihoods.append(log_likelihood)
+
+            if len(logs) < 20:
+                text = ''.join(token.text for token in instance.fields['tokens'])
+                logs.append('    {:70s} {:4.3f}'.format(text, reward))
+
+        baseline = sum(rewards) / len(instances)
+        avr_loss = sum(-1. * (reward - baseline) * log_likelihood
+                       for reward, log_likelihood in zip(rewards, log_likelihoods))
+        avr_loss /= len(instances)
+
+        avr_loss.backward()
+        generator_optim.step()
+
+        log = 'epoch: {}, loss: {}, avr_reward: {}'.format(epoch, avr_loss, baseline)
+        print(log)
+        log_file.write(log + '\n')
+        for log in logs:
+            print(log)
+            log_file.write(log + '\n')
+
         # train discriminator
         fake_logs = []
         real_logs = []
@@ -334,43 +388,6 @@ def main():
         print(log)
         log_file.write(log + '\n')
         for log in real_logs + fake_logs:
-            print(log)
-            log_file.write(log + '\n')
-
-        # train generator
-        generator.zero_grad()
-
-        instances = get_generator_batch(
-            generator, token_indexers, args.batch_size)
-
-        log_likelihoods = []
-        rewards = []
-        logs = []
-
-        for instance, log_likelihood in instances:
-            reward = get_reward(instance, discriminator, vocab)
-            reward += get_reward_chrf(instance, train_sentences)
-
-            rewards.append(reward)
-            log_likelihoods.append(log_likelihood)
-
-            if len(logs) < 20:
-                text = ''.join(token.text for token in instance.fields['tokens'])
-                logs.append('    {:70s} {:4.3f}'.format(text, reward))
-
-
-        baseline = sum(rewards) / len(instances)
-        avr_loss = sum(-1. * (reward - baseline) * log_likelihood
-                       for reward, log_likelihood in zip(rewards, log_likelihoods))
-        avr_loss /= len(instances)
-
-        avr_loss.backward()
-        generator_optim.step()
-
-        log = 'epoch: {}, loss: {}, avr_reward: {}'.format(epoch, avr_loss, baseline)
-        print(log)
-        log_file.write(log + '\n')
-        for log in logs:
             print(log)
             log_file.write(log + '\n')
 
