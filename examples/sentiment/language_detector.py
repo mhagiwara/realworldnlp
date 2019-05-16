@@ -63,8 +63,8 @@ def classify(text: str, model: LstmClassifier):
 
 def main():
     reader = TatoebaSentenceReader()
-    train_set = reader.read('data/mt/sentences.top10langs.train.tsv')
-    dev_set = reader.read('data/mt/sentences.top10langs.dev.tsv')
+    train_set = reader.read('data/tatoeba/sentences.top10langs.train.tsv')
+    dev_set = reader.read('data/tatoeba/sentences.top10langs.dev.tsv')
 
     vocab = Vocabulary.from_instances(train_set,
                                       min_count={'tokens': 3})

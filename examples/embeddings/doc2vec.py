@@ -8,7 +8,7 @@ def read_corpus(file_path):
 
 
 def main():
-    train_set = list(read_corpus('data/mt/sentences.eng.200k.txt'))
+    train_set = list(read_corpus('data/tatoeba/sentences.eng.200k.txt'))
     model = Doc2Vec(vector_size=256, min_count=3, epochs=30)
     model.build_vocab(train_set)
     model.train(train_set, total_examples=model.corpus_count, epochs=model.epochs)

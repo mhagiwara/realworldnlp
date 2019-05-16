@@ -24,7 +24,7 @@ BATCH_SIZE = 128
 def read_dataset(all_chars: Set[str]=None) -> List[List[Token]]:
     tokenizer = CharacterTokenizer()
     sentences = []
-    with open('data/mt/sentences.eng.10k.txt') as f:
+    with open('data/tatoeba/sentences.eng.10k.txt') as f:
         for line in f:
             line = line.strip()
             if not line:

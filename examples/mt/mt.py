@@ -28,8 +28,8 @@ def main():
         target_tokenizer=CharacterTokenizer(),
         source_token_indexers={'tokens': SingleIdTokenIndexer()},
         target_token_indexers={'tokens': SingleIdTokenIndexer(namespace='target_tokens')})
-    train_dataset = reader.read('data/mt/tatoeba.eng_cmn.train.tsv')
-    validation_dataset = reader.read('data/mt/tatoeba.eng_cmn.dev.tsv')
+    train_dataset = reader.read('data/tatoeba/tatoeba.eng_cmn.train.tsv')
+    validation_dataset = reader.read('data/tatoeba/tatoeba.eng_cmn.dev.tsv')
 
     vocab = Vocabulary.from_instances(train_dataset + validation_dataset,
                                       min_count={'tokens': 3, 'target_tokens': 3})
