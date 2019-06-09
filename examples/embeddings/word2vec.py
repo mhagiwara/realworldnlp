@@ -2,6 +2,7 @@ import math
 import random
 from collections import Counter
 
+import numpy as np
 import torch
 import torch.optim as optim
 from allennlp.common.file_utils import cached_path
@@ -14,11 +15,9 @@ from allennlp.models import Model
 from allennlp.modules.token_embedders import Embedding
 from allennlp.training.trainer import Trainer
 from overrides import overrides
+from scipy.stats import spearmanr
 from torch.nn import CosineSimilarity
 from torch.nn import functional
-import numpy as np
-
-from scipy.stats import spearmanr
 
 EMBEDDING_DIM = 256
 BATCH_SIZE = 256
