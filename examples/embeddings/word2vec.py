@@ -4,6 +4,7 @@ from collections import Counter
 
 import torch
 import torch.optim as optim
+from allennlp.common.file_utils import cached_path
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.data.fields import LabelField
 from allennlp.data.instance import Instance
@@ -67,7 +68,7 @@ class SkipGramReader(DatasetReader):
 
     @overrides
     def _read(self, file_path: str):
-        with open(file_path, "r") as text_file:
+        with open(cached_path(file_path), "r") as text_file:
             for line in text_file:
                 tokens = line.strip().split(' ')
                 tokens = tokens[:1000000]  # TODO: remove
