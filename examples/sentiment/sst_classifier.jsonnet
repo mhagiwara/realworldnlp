@@ -9,8 +9,8 @@ local hidden_dim = 128;
   "dataset_reader": {
     "type": "sst_tokens"
   },
-  "train_data_path": "data/stanfordSentimentTreebank/trees/train.txt",
-  "validation_data_path": "data/stanfordSentimentTreebank/trees/dev.txt",
+  "train_data_path": "https://s3.amazonaws.com/realworldnlpbook/data/stanfordSentimentTreebank/trees/train.txt",
+  "validation_data_path": "https://s3.amazonaws.com/realworldnlpbook/data/stanfordSentimentTreebank/trees/dev.txt",
 
   // In order to use a model in configuration, it must
   //   1) inherit from the Registrable base class, and
