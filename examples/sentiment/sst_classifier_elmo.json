@@ -16,7 +16,7 @@ local hidden_dim = 128;
   "model": {
     "type": "lstm_classifier",
 
-    "word_embeddings": {
+    "embedder": {
       "tokens": {
         "type": "elmo_token_embedder",
         "options_file": "https://s3-us-west-2.amazonaws.com/allennlp/models/elmo/2x1024_128_2048cnn_1xhighway/elmo_2x1024_128_2048cnn_1xhighway_options.json",

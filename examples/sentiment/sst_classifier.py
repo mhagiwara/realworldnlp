@@ -24,13 +24,13 @@ HIDDEN_DIM = 128
 @Model.register("lstm_classifier")
 class LstmClassifier(Model):
     def __init__(self,
-                 word_embeddings: TextFieldEmbedder,
+                 embedder: TextFieldEmbedder,
                  encoder: Seq2VecEncoder,
                  vocab: Vocabulary,
                  positive_label: str = '4') -> None:
         super().__init__(vocab)
         # We need the embeddings to convert word IDs to their vector representations
-        self.word_embeddings = word_embeddings
+        self.embedder = embedder
 
         self.encoder = encoder
 
@@ -60,7 +60,7 @@ class LstmClassifier(Model):
         mask = get_text_field_mask(tokens)
 
         # Forward pass
-        embeddings = self.word_embeddings(tokens)
+        embeddings = self.embedder(tokens)
         encoder_out = self.encoder(embeddings, mask)
         logits = self.linear(encoder_out)
 
@@ -130,6 +130,7 @@ def main():
     label_id = np.argmax(logits)
 
     print(model.vocab.get_token_from_index(label_id, 'labels'))
+
 
 if __name__ == '__main__':
     main()

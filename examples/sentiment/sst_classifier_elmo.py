@@ -51,14 +51,14 @@ def main():
                                       min_count={'tokens': 3})
 
     # Pass in the ElmoTokenEmbedder instance instead
-    word_embeddings = BasicTextFieldEmbedder({"tokens": elmo_embedder})
+    embedder = BasicTextFieldEmbedder({"tokens": elmo_embedder})
 
     # The dimension of the ELMo embedding will be 2 x [size of LSTM hidden states]
     elmo_embedding_dim = 256
     lstm = PytorchSeq2VecWrapper(
         torch.nn.LSTM(elmo_embedding_dim, HIDDEN_DIM, batch_first=True))
 
-    model = LstmClassifier(word_embeddings, lstm, vocab)
+    model = LstmClassifier(embedder, lstm, vocab)
     optimizer = optim.Adam(model.parameters())
 
     iterator = BucketIterator(batch_size=32, sorting_keys=[("tokens", "num_tokens")])
