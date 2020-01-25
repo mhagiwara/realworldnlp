@@ -1,4 +1,4 @@
-local bert_model = "bert-base-uncased";
+local bert_model = "bert-base-cased";
 
 {
     "dataset_reader": {
@@ -36,13 +36,14 @@ local bert_model = "bert-base-uncased";
     },
     "iterator": {
         "type": "bucket",
-        "batch_size": 8
+        "batch_size": 32
     },
     "trainer": {
         "optimizer": {
             "type": "huggingface_adamw",
             "lr": 1.0e-5
         },
-        "num_epochs": 10,
+        "num_epochs": 20,
+        "patience": 10
     }
 }
