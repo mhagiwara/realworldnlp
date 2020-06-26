@@ -1,11 +1,8 @@
-from typing import Dict
-
 import numpy as np
 import torch
 import torch.optim as optim
-from allennlp.data.dataset_readers.stanford_sentiment_tree_bank import \
-    StanfordSentimentTreeBankDatasetReader
-from allennlp.data.iterators import BucketIterator
+from allennlp.data import DataLoader
+from allennlp.data.samplers import BucketBatchSampler
 from allennlp.data.vocabulary import Vocabulary
 from allennlp.models import Model
 from allennlp.modules.seq2vec_encoders import Seq2VecEncoder, PytorchSeq2VecWrapper
@@ -13,12 +10,16 @@ from allennlp.modules.text_field_embedders import TextFieldEmbedder, BasicTextFi
 from allennlp.modules.token_embedders import Embedding
 from allennlp.nn.util import get_text_field_mask
 from allennlp.training.metrics import CategoricalAccuracy, F1Measure
-from allennlp.training.trainer import Trainer
+from allennlp.training.trainer import GradientDescentTrainer
+from allennlp_models.classification.dataset_readers.stanford_sentiment_tree_bank import \
+    StanfordSentimentTreeBankDatasetReader
+from typing import Dict
 
 from realworldnlp.predictors import SentenceClassifierPredictor
 
 EMBEDDING_DIM = 128
 HIDDEN_DIM = 128
+
 
 # Model in AllenNLP represents a model that is trained.
 @Model.register("lstm_classifier")
@@ -110,19 +111,31 @@ def main():
         torch.nn.LSTM(EMBEDDING_DIM, HIDDEN_DIM, batch_first=True))
 
     model = LstmClassifier(word_embeddings, encoder, vocab)
+
+    train_dataset.index_with(vocab)
+    dev_dataset.index_with(vocab)
+
+    train_data_loader = DataLoader(train_dataset,
+                                   batch_sampler=BucketBatchSampler(
+                                       train_dataset,
+                                       batch_size=32,
+                                       sorting_keys=["tokens"]))
+    dev_data_loader = DataLoader(dev_dataset,
+                                 batch_sampler=BucketBatchSampler(
+                                     dev_dataset,
+                                     batch_size=32,
+                                     sorting_keys=["tokens"]))
+
     optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
 
-    iterator = BucketIterator(batch_size=32, sorting_keys=[("tokens", "num_tokens")])
+    trainer = GradientDescentTrainer(
+        model=model,
+        optimizer=optimizer,
+        data_loader=train_data_loader,
+        validation_data_loader=dev_data_loader,
+        patience=10,
+        num_epochs=20)
 
-    iterator.index_with(vocab)
-
-    trainer = Trainer(model=model,
-                      optimizer=optimizer,
-                      iterator=iterator,
-                      train_dataset=train_dataset,
-                      validation_dataset=dev_dataset,
-                      patience=10,
-                      num_epochs=20)
     trainer.train()
 
     predictor = SentenceClassifierPredictor(model, dataset_reader=reader)
