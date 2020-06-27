@@ -6,14 +6,14 @@ import numpy as np
 import torch
 import torch.optim as optim
 from allennlp.common.file_utils import cached_path
+from allennlp.data import DataLoader
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.data.fields import LabelField
 from allennlp.data.instance import Instance
-from allennlp.data.iterators import BasicIterator
 from allennlp.data.vocabulary import Vocabulary
 from allennlp.models import Model
 from allennlp.modules.token_embedders import Embedding
-from allennlp.training.trainer import Trainer
+from allennlp.training.trainer import GradientDescentTrainer
 from overrides import overrides
 from scipy.stats import spearmanr
 from torch.nn import CosineSimilarity
@@ -21,7 +21,8 @@ from torch.nn import functional
 
 EMBEDDING_DIM = 256
 BATCH_SIZE = 256
-CUDA_DEVICE = 0
+CUDA_DEVICE = -1
+
 
 @DatasetReader.register("skip_gram")
 class SkipGramReader(DatasetReader):
@@ -135,7 +136,6 @@ class SkipGramNegativeSamplingModel(Model):
         for token_id, token in vocab.get_index_to_token_vocabulary('token_in').items():
             self.neg_sample_probs[token_id] = token_to_probs.get(token, 0) / total_probs
 
-
     def forward(self, token_in, token_out):
         batch_size = token_out.shape[0]
 
@@ -232,6 +232,7 @@ def main():
 
     reader = SkipGramReader(vocab=vocab)
     text8 = reader.read('data/text8/text8')
+    text8.index_with(vocab)
 
     embedding_in = Embedding(num_embeddings=vocab.get_vocab_size('token_in'),
                              embedding_dim=EMBEDDING_DIM)
@@ -240,8 +241,8 @@ def main():
     if CUDA_DEVICE > -1:
         embedding_in = embedding_in.to(CUDA_DEVICE)
         embedding_out = embedding_out.to(CUDA_DEVICE)
-    iterator = BasicIterator(batch_size=BATCH_SIZE)
-    iterator.index_with(vocab)
+
+    data_loader = DataLoader(text8, batch_size=BATCH_SIZE)
 
     # model = SkipGramNegativeSamplingModel(
     #     vocab=vocab,
@@ -256,12 +257,12 @@ def main():
 
     optimizer = optim.Adam(model.parameters())
 
-    trainer = Trainer(model=model,
-                      optimizer=optimizer,
-                      iterator=iterator,
-                      train_dataset=text8,
-                      num_epochs=5,
-                      cuda_device=CUDA_DEVICE)
+    trainer = GradientDescentTrainer(
+        model=model,
+        optimizer=optimizer,
+        data_loader=data_loader,
+        num_epochs=5,
+        cuda_device=CUDA_DEVICE)
     trainer.train()
 
     # write_embeddings(embedding_in, 'data/text8/embeddings.txt', vocab)
