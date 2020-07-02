@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import torch.optim as optim
-from allennlp.data import DataLoader
+from allennlp.data import DataLoader, TextFieldTensors
 from allennlp.data.samplers import BucketBatchSampler
 from allennlp.data.vocabulary import Vocabulary
 from allennlp.models import Model
@@ -53,7 +53,7 @@ class LstmClassifier(Model):
     # Instances are fed to forward after batching.
     # Fields are passed through arguments with the same name.
     def forward(self,
-                tokens: Dict[str, torch.Tensor],
+                tokens: TextFieldTensors,
                 label: torch.Tensor = None) -> torch.Tensor:
         # In deep NLP, when sequences of tensors in different lengths are batched together,
         # shorter sequences get padded with zeros to make them equal length.
@@ -86,8 +86,9 @@ class LstmClassifier(Model):
 def main():
     reader = StanfordSentimentTreeBankDatasetReader()
 
-    train_dataset = reader.read('data/stanfordSentimentTreebank/trees/train.txt')
-    dev_dataset = reader.read('data/stanfordSentimentTreebank/trees/dev.txt')
+    s3_prefix = 'https://s3.amazonaws.com/realworldnlpbook/data'
+    train_dataset = reader.read(f'{s3_prefix}/stanfordSentimentTreebank/trees/train.txt')
+    dev_dataset = reader.read(f'{s3_prefix}/stanfordSentimentTreebank/trees/dev.txt')
 
     # You can optionally specify the minimum count of tokens/labels.
     # `min_count={'tokens':3}` here means that any tokens that appear less than three times

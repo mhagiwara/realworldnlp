@@ -1,15 +1,15 @@
 import numpy as np
 import torch
 import torch.optim as optim
-from allennlp.data.dataset_readers.stanford_sentiment_tree_bank import \
-    StanfordSentimentTreeBankDatasetReader
-from allennlp.data.iterators import BucketIterator
 from allennlp.data.token_indexers.elmo_indexer import ELMoTokenCharactersIndexer
+from allennlp.data.samplers import BucketBatchSampler
 from allennlp.data.vocabulary import Vocabulary
 from allennlp.modules.seq2vec_encoders import PytorchSeq2VecWrapper
 from allennlp.modules.text_field_embedders import BasicTextFieldEmbedder
 from allennlp.modules.token_embedders import ElmoTokenEmbedder
 from allennlp.training.trainer import Trainer
+from allennlp_models.classification.dataset_readers.stanford_sentiment_tree_bank import \
+    StanfordSentimentTreeBankDatasetReader
 
 from examples.sentiment.sst_classifier import LstmClassifier
 from realworldnlp.predictors import SentenceClassifierPredictor

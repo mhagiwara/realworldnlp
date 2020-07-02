@@ -14,8 +14,8 @@ local bert_model = "bert-base-cased";
             }
         },
     },
-    "train_data_path": "data/stanfordSentimentTreebank/trees/train.txt",
-    "validation_data_path": "data/stanfordSentimentTreebank/trees/dev.txt",
+    "train_data_path": "https://s3.amazonaws.com/realworldnlpbook/data/stanfordSentimentTreebank/trees/train.txt",
+    "validation_data_path": "https://s3.amazonaws.com/realworldnlpbook/data/stanfordSentimentTreebank/trees/dev.txt",
 
     "model": {
         "type": "lstm_classifier",
@@ -34,8 +34,7 @@ local bert_model = "bert-base-cased";
             "requires_grad": false
         }
     },
-    "iterator": {
-        "type": "bucket",
+    "data_loader": {
         "batch_size": 32
     },
     "trainer": {
@@ -44,6 +43,7 @@ local bert_model = "bert-base-cased";
             "lr": 1.0e-5
         },
         "num_epochs": 20,
-        "patience": 10
+        "patience": 10,
+        "cuda_device": 0
     }
 }
