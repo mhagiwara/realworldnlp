@@ -1,0 +1,27 @@
+[
+    {
+        "type": "int",
+        "attributes": {
+            "name": "embedding_dim",
+            "low": 64,
+            "high": 256
+        }
+    },
+    {
+        "type": "int",
+        "attributes": {
+            "name": "hidden_dim",
+            "low": 64,
+            "high": 256
+        }
+    },
+    {
+        "type": "float",
+        "attributes": {
+            "name": "lr",
+            "low": 1e-4,
+            "high": 1e-1,
+            "log": true
+        }
+    }
+]
