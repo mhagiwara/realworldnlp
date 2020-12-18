@@ -22,17 +22,14 @@ local hidden_dim = 128;
 
     // Other keys in the JSON dict correspond to the parameters passed to the constructor.
 
-    // What's going on here -
     // The `embedder` parameter takes an instance of TextFieldEmbedder.
-    // In the Python code, you instantiated a BasicTextFieldEmbedder and passed it to
-    // `embedder`. However, the default implementation of TextFieldEmbedder is
-    // "basic", which is BasicTextFieldEmbedder.
-    // That's why you can write parameters to BasicTextFieldEmbedder (dictionary from
-    // field names to their embedder) directly here.
+    // You are specifying a dictionary from field names to their embedder here.
     "embedder": {
-      "tokens": {
-        "type": "embedding",
-        "embedding_dim": embedding_dim
+      "token_embedders": {
+        "tokens": {
+          "type": "embedding",
+          "embedding_dim": embedding_dim
+        }
       }
     },
 
@@ -46,15 +43,19 @@ local hidden_dim = 128;
       "hidden_size": hidden_dim
     }
   },
-  "iterator": {
-    "type": "bucket",
-    "batch_size": 32,
-    "sorting_keys": [["tokens", "num_tokens"]]
+  "data_loader": {
+    "batch_sampler": {
+      "type": "bucket",
+      "sorting_keys": ["tokens"],
+      "padding_noise": 0.1,
+      "batch_size" : 32
+    }
   },
   "trainer": {
     "optimizer": "adam",
     "num_epochs": 20,
-    "patience": 10
+    "patience": 10,
+    "cuda_device": 0
   }
 }
 
