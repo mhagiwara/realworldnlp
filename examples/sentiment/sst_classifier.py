@@ -65,9 +65,10 @@ class LstmClassifier(Model):
         encoder_out = self.encoder(embeddings, mask)
         logits = self.linear(encoder_out)
 
+        probs = torch.softmax(logits, dim=-1)
         # In AllenNLP, the output of forward() is a dictionary.
         # Your output dictionary must contain a "loss" key for your model to be trained.
-        output = {"logits": logits}
+        output = {"logits": logits, "cls_emb": encoder_out, "probs": probs}
         if label is not None:
             self.accuracy(logits, label)
             self.f1_measure(logits, label)
