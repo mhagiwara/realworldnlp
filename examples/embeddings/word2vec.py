@@ -6,14 +6,14 @@ import numpy as np
 import torch
 import torch.optim as optim
 from allennlp.common.file_utils import cached_path
-from allennlp.data import DataLoader
+from allennlp.data.data_loaders import SimpleDataLoader
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.data.fields import LabelField
 from allennlp.data.instance import Instance
 from allennlp.data.vocabulary import Vocabulary
 from allennlp.models import Model
 from allennlp.modules.token_embedders import Embedding
-from allennlp.training.trainer import GradientDescentTrainer
+from allennlp.training import GradientDescentTrainer
 from overrides import overrides
 from scipy.stats import spearmanr
 from torch.nn import CosineSimilarity
@@ -26,14 +26,14 @@ CUDA_DEVICE = -1
 
 @DatasetReader.register("skip_gram")
 class SkipGramReader(DatasetReader):
-    def __init__(self, window_size=5, lazy=False, vocab: Vocabulary=None):
+    def __init__(self, window_size=5, vocab: Vocabulary=None):
         """A DatasetReader for reading a plain text corpus and producing instances
         for the SkipGram model.
 
         When vocab is not None, this runs sub-sampling of frequent words as described
         in (Mikolov et al. 2013).
         """
-        super().__init__(lazy=lazy)
+        super().__init__()
         self.window_size = window_size
         self.reject_probs = None
         if vocab:
@@ -232,7 +232,9 @@ def main():
 
     reader = SkipGramReader(vocab=vocab)
     text8 = reader.read('data/text8/text8')
-    text8.index_with(vocab)
+
+    data_loader = SimpleDataLoader(list(text8), batch_size=BATCH_SIZE)
+    data_loader.index_with(vocab)
 
     embedding_in = Embedding(num_embeddings=vocab.get_vocab_size('token_in'),
                              embedding_dim=EMBEDDING_DIM)
@@ -241,8 +243,6 @@ def main():
     if CUDA_DEVICE > -1:
         embedding_in = embedding_in.to(CUDA_DEVICE)
         embedding_out = embedding_out.to(CUDA_DEVICE)
-
-    data_loader = DataLoader(text8, batch_size=BATCH_SIZE)
 
     # model = SkipGramNegativeSamplingModel(
     #     vocab=vocab,
