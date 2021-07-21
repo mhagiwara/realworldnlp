@@ -21,7 +21,7 @@ class SentenceClassifierPredictor(Predictor):
     def _json_to_instance(self, json_dict: JsonDict) -> Instance:
         sentence = json_dict["sentence"]
         tokens = self._tokenizer.tokenize(sentence)
-        return self._dataset_reader.text_to_instance(tokens)
+        return self._dataset_reader.text_to_instance([str(t) for t in tokens])
 
 
 @Predictor.register("universal_pos_predictor")
