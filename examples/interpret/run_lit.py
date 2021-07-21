@@ -13,10 +13,6 @@ from examples.sentiment.sst_reader import StanfordSentimentTreeBankDatasetReader
 
 
 class SSTData(lit_dataset.Dataset):
-    """Stanford Sentiment Treebank, binary version (SST-2).
-    See https://www.tensorflow.org/datasets/catalog/glue#gluesst2.
-    """
-
     def __init__(self, labels):
         self._labels = labels
         self._examples = [
@@ -59,7 +55,6 @@ class SentimentClassifierModel(lit_model.Model):
                 'probas': np.array(pred['probs']),
                 'cls_emb': np.array(pred['cls_emb'])
             }
-
 
     def input_spec(self):
         return {
