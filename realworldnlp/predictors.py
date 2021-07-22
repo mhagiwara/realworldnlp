@@ -1,5 +1,6 @@
 from allennlp.common import JsonDict
 from allennlp.data import DatasetReader, Instance
+from allennlp.data.tokenizers.spacy_tokenizer import SpacyTokenizer
 from allennlp.models import Model
 from allennlp.predictors import Predictor
 from overrides import overrides
@@ -12,7 +13,7 @@ from typing import List
 class SentenceClassifierPredictor(Predictor):
     def __init__(self, model: Model, dataset_reader: DatasetReader) -> None:
         super().__init__(model, dataset_reader)
-        self._tokenizer = dataset_reader._tokenizer
+        self._tokenizer = dataset_reader._tokenizer or SpacyTokenizer()
 
     def predict(self, sentence: str) -> JsonDict:
         return self.predict_json({"sentence" : sentence})

@@ -1,8 +1,13 @@
+from itertools import chain
+from typing import Dict
+
 import numpy as np
 import torch
 import torch.optim as optim
-from allennlp.data import DataLoader, TextFieldTensors
+from allennlp.data import TextFieldTensors
+from allennlp.data.data_loaders import MultiProcessDataLoader
 from allennlp.data.samplers import BucketBatchSampler
+from allennlp.data.tokenizers import SpacyTokenizer
 from allennlp.data.vocabulary import Vocabulary
 from allennlp.models import Model
 from allennlp.modules.seq2vec_encoders import Seq2VecEncoder, PytorchSeq2VecWrapper
@@ -10,10 +15,9 @@ from allennlp.modules.text_field_embedders import TextFieldEmbedder, BasicTextFi
 from allennlp.modules.token_embedders import Embedding
 from allennlp.nn.util import get_text_field_mask
 from allennlp.training.metrics import CategoricalAccuracy, F1Measure
-from allennlp.training.trainer import GradientDescentTrainer
+from allennlp.training import GradientDescentTrainer
 from allennlp_models.classification.dataset_readers.stanford_sentiment_tree_bank import \
     StanfordSentimentTreeBankDatasetReader
-from typing import Dict
 
 from realworldnlp.predictors import SentenceClassifierPredictor
 
@@ -77,24 +81,22 @@ class LstmClassifier(Model):
         return output
 
     def get_metrics(self, reset: bool = False) -> Dict[str, float]:
-        precision, recall, f1_measure = self.f1_measure.get_metric(reset)
         return {'accuracy': self.accuracy.get_metric(reset),
-                'precision': precision,
-                'recall': recall,
-                'f1_measure': f1_measure}
-
+                **self.f1_measure.get_metric(reset)}
 
 def main():
-    reader = StanfordSentimentTreeBankDatasetReader()
+    reader = StanfordSentimentTreeBankDatasetReader(tokenizer=SpacyTokenizer())
+    train_path = 'https://s3.amazonaws.com/realworldnlpbook/data/stanfordSentimentTreebank/trees/train.txt'
+    dev_path = 'https://s3.amazonaws.com/realworldnlpbook/data/stanfordSentimentTreebank/trees/dev.txt'
 
-    s3_prefix = 'https://s3.amazonaws.com/realworldnlpbook/data'
-    train_dataset = reader.read(f'{s3_prefix}/stanfordSentimentTreebank/trees/train.txt')
-    dev_dataset = reader.read(f'{s3_prefix}/stanfordSentimentTreebank/trees/dev.txt')
+    sampler = BucketBatchSampler(batch_size=32, sorting_keys=["tokens"])
+    train_data_loader = MultiProcessDataLoader(reader, train_path, batch_sampler=sampler)
+    dev_data_loader = MultiProcessDataLoader(reader, dev_path, batch_sampler=sampler)
 
     # You can optionally specify the minimum count of tokens/labels.
     # `min_count={'tokens':3}` here means that any tokens that appear less than three times
     # will be ignored and not included in the vocabulary.
-    vocab = Vocabulary.from_instances(train_dataset + dev_dataset,
+    vocab = Vocabulary.from_instances(chain(train_data_loader.iter_instances(), dev_data_loader.iter_instances()),
                                       min_count={'tokens': 3})
 
     token_embedding = Embedding(num_embeddings=vocab.get_vocab_size('tokens'),
@@ -114,20 +116,6 @@ def main():
 
     model = LstmClassifier(word_embeddings, encoder, vocab)
 
-    train_dataset.index_with(vocab)
-    dev_dataset.index_with(vocab)
-
-    train_data_loader = DataLoader(train_dataset,
-                                   batch_sampler=BucketBatchSampler(
-                                       train_dataset,
-                                       batch_size=32,
-                                       sorting_keys=["tokens"]))
-    dev_data_loader = DataLoader(dev_dataset,
-                                 batch_sampler=BucketBatchSampler(
-                                     dev_dataset,
-                                     batch_size=32,
-                                     sorting_keys=["tokens"]))
-
     optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
 
     trainer = GradientDescentTrainer(
@@ -136,7 +124,8 @@ def main():
         data_loader=train_data_loader,
         validation_data_loader=dev_data_loader,
         patience=10,
-        num_epochs=20)
+        num_epochs=20,
+        cuda_device=-1)
 
     trainer.train()
 
