@@ -7,7 +7,6 @@ import torch.optim as optim
 from allennlp.data import TextFieldTensors
 from allennlp.data.data_loaders import MultiProcessDataLoader
 from allennlp.data.samplers import BucketBatchSampler
-from allennlp.data.tokenizers import SpacyTokenizer
 from allennlp.data.vocabulary import Vocabulary
 from allennlp.models import Model
 from allennlp.modules.seq2vec_encoders import Seq2VecEncoder, PytorchSeq2VecWrapper
@@ -85,7 +84,7 @@ class LstmClassifier(Model):
                 **self.f1_measure.get_metric(reset)}
 
 def main():
-    reader = StanfordSentimentTreeBankDatasetReader(tokenizer=SpacyTokenizer())
+    reader = StanfordSentimentTreeBankDatasetReader()
     train_path = 'https://s3.amazonaws.com/realworldnlpbook/data/stanfordSentimentTreebank/trees/train.txt'
     dev_path = 'https://s3.amazonaws.com/realworldnlpbook/data/stanfordSentimentTreebank/trees/dev.txt'
 
@@ -98,6 +97,8 @@ def main():
     # will be ignored and not included in the vocabulary.
     vocab = Vocabulary.from_instances(chain(train_data_loader.iter_instances(), dev_data_loader.iter_instances()),
                                       min_count={'tokens': 3})
+    train_data_loader.index_with(vocab)
+    dev_data_loader.index_with(vocab)
 
     token_embedding = Embedding(num_embeddings=vocab.get_vocab_size('tokens'),
                                 embedding_dim=EMBEDDING_DIM)
